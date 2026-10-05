@@ -13,10 +13,10 @@ FROM apex_recon.gold.dispute_queue GROUP BY partner_team ORDER BY partner_team
 ```
 | partner_team | cases | revenue_at_risk_usd |
 |---|---|---|
-| Atlantic | 161 | 3055415.0 |
-| Central | 188 | 4227884.0 |
-| EMEA | 137 | 3295860.0 |
-| Pacific | 435 | 1.2066211E7 |
+| Atlantic | 154 | 4034675.0 |
+| Central | 194 | 5198282.0 |
+| EMEA | 166 | 3686639.0 |
+| Pacific | 441 | 1.4482205E7 |
 
 ```sql
 UPDATE apex_recon.ops.recon_access SET partner_team = 'Atlantic', can_see_revenue = FALSE WHERE principal = current_user()
@@ -39,7 +39,7 @@ FROM apex_recon.gold.dispute_queue GROUP BY partner_team ORDER BY partner_team
 ```
 | partner_team | cases | revenue_at_risk_usd |
 |---|---|---|
-| Atlantic | 161 |  |
+| Atlantic | 154 |  |
 
 ```sql
 SELECT case_id, dsp_name, partner_team, impression_gap_pct, revenue_gap_usd, revenue_at_risk_usd, predicted_root_cause
@@ -47,11 +47,11 @@ FROM apex_recon.gold.dispute_queue ORDER BY impression_gap_pct DESC LIMIT 5
 ```
 | case_id | dsp_name | partner_team | impression_gap_pct | revenue_gap_usd | revenue_at_risk_usd | predicted_root_cause |
 |---|---|---|---|---|---|---|
-| CASE-2026-07-D00651 | Kestrel Demand | Atlantic | 46.875 |  |  | DEAL_ID_MISMAPPING |
-| CASE-2026-07-D00162 | Kestrel Demand | Atlantic | 40.235 |  |  | DEAL_ID_MISMAPPING |
-| CASE-2026-09-D00394 | Kestrel Demand | Atlantic | 36.276 |  |  | DEAL_ID_MISMAPPING |
-| CASE-2026-07-D00720 | Ember Ads | Atlantic | 33.67 |  |  | DEAL_ID_MISMAPPING |
-| CASE-2026-07-D00394 | Kestrel Demand | Atlantic | 23.315 |  |  | LATE_OR_MISSING_DATA |
+| CASE-2026-07-D00162 | Kestrel Demand | Atlantic | 52.639 |  |  | DEAL_ID_MISMAPPING |
+| CASE-2026-07-D00302 | Kestrel Demand | Atlantic | 48.569 |  |  | DEAL_ID_MISMAPPING |
+| CASE-2026-08-D00003 | Kestrel Demand | Atlantic | 42.897 |  |  | DEAL_ID_MISMAPPING |
+| CASE-2026-09-D00117 | Cascade Reach | Atlantic | 36.276 |  |  | DEAL_ID_MISMAPPING |
+| CASE-2026-07-D00497 | Kestrel Demand | Atlantic | 30.358 |  |  | DEAL_ID_MISMAPPING |
 
 ```sql
 UPDATE apex_recon.ops.recon_access SET partner_team = '*', can_see_revenue = TRUE WHERE principal = current_user()
@@ -66,10 +66,10 @@ FROM apex_recon.gold.dispute_queue GROUP BY partner_team ORDER BY partner_team
 ```
 | partner_team | cases | revenue_at_risk_usd |
 |---|---|---|
-| Atlantic | 161 | 3055415.0 |
-| Central | 188 | 4227884.0 |
-| EMEA | 137 | 3295860.0 |
-| Pacific | 435 | 1.2066211E7 |
+| Atlantic | 154 | 4034675.0 |
+| Central | 194 | 5198282.0 |
+| EMEA | 166 | 3686639.0 |
+| Pacific | 441 | 1.4482205E7 |
 
 ```sql
 SELECT table_name, filter_name, target_columns FROM apex_recon.information_schema.row_filters WHERE table_name = 'dispute_queue'
@@ -119,3 +119,39 @@ ORDER BY target_table_full_name, source_table_full_name
 ```
 | source_table_full_name | target_table_full_name |
 |---|---|
+| apex_recon.gold.dispute_drafts | apex_recon.gold.case_workbench |
+| apex_recon.gold.dispute_queue | apex_recon.gold.case_workbench |
+| apex_recon.gold.dispute_queue | apex_recon.gold.dispute_drafts |
+| apex_recon.gold.recon_deal_month | apex_recon.gold.dispute_queue |
+| apex_recon.ml.discrepancy_features | apex_recon.gold.dispute_queue |
+| apex_recon.ml.discrepancy_predictions | apex_recon.gold.dispute_queue |
+| apex_recon.silver.dim_publishers | apex_recon.gold.publisher_recon_month |
+| apex_recon.silver.publisher_daily_reports | apex_recon.gold.publisher_recon_month |
+| apex_recon.silver.ssp_hourly | apex_recon.gold.publisher_recon_month |
+| apex_recon.silver.dsp_daily_reports | apex_recon.gold.recon_deal_daily |
+| apex_recon.silver.ssp_hourly | apex_recon.gold.recon_deal_daily |
+| apex_recon.gold.recon_deal_daily | apex_recon.gold.recon_deal_month |
+| apex_recon.silver.dim_deals | apex_recon.gold.recon_deal_month |
+| apex_recon.silver.dim_dsps | apex_recon.gold.recon_deal_month |
+| apex_recon.silver.dim_publishers | apex_recon.gold.recon_deal_month |
+| apex_recon.gold.recon_deal_month | apex_recon.gold.recon_partner_month |
+| apex_recon.gold.recon_deal_daily | apex_recon.ml.discrepancy_features |
+| apex_recon.gold.recon_deal_month | apex_recon.ml.discrepancy_features |
+| apex_recon.silver.ssp_hourly | apex_recon.ml.discrepancy_features |
+| apex_recon.gold.case_workbench | apex_recon.ops.dispute_case_status |
+| apex_recon.ops.lakebase_credit_approvals | apex_recon.ops.dispute_case_status |
+| apex_recon.ops.lakebase_dispute_cases | apex_recon.ops.dispute_case_status |
+| apex_recon.bronze.dispute_resolutions | apex_recon.silver.dispute_history |
+| apex_recon.bronze.dsp_reports_format_a | apex_recon.silver.dsp_daily_reports |
+| apex_recon.bronze.dsp_reports_format_b | apex_recon.silver.dsp_daily_reports |
+| apex_recon.bronze.dsp_reports_format_c | apex_recon.silver.dsp_daily_reports |
+| apex_recon.silver.dim_deals | apex_recon.silver.dsp_daily_reports |
+| apex_recon.silver.dim_dsps | apex_recon.silver.dsp_daily_reports |
+| apex_recon.silver.fx_rates | apex_recon.silver.dsp_daily_reports |
+| apex_recon.bronze.dsp_reports_format_a | apex_recon.silver.dsp_reports_quarantine |
+| apex_recon.bronze.dsp_reports_format_b | apex_recon.silver.dsp_reports_quarantine |
+| apex_recon.bronze.dsp_reports_format_c | apex_recon.silver.dsp_reports_quarantine |
+| apex_recon.silver.dim_deals | apex_recon.silver.dsp_reports_quarantine |
+| apex_recon.silver.dim_dsps | apex_recon.silver.dsp_reports_quarantine |
+| apex_recon.silver.fx_rates | apex_recon.silver.dsp_reports_quarantine |
+| apex_recon.bronze.publisher_adserver_reports | apex_recon.silver.publisher_daily_reports |

@@ -107,8 +107,12 @@ display(q.groupBy("billing_month", "predicted_root_cause").agg(F.count("*").alia
 
 PROMPT = """You are a senior billing operations analyst at Apex Exchange, a CTV sell-side platform.
 Draft a case summary for an internal analyst and a dispute email to the DSP partner, using ONLY the evidence below.
-Rules: quote dollar amounts and percentages exactly as given; do not invent numbers, dates or names; be firm, factual
-and courteous; if the root cause implies no billing adjustment, say so and request the reporting fix instead.
+Rules:
+- Quote dollar amounts and percentages exactly as given; do not invent numbers, dates or names; be firm, factual and courteous.
+- Make exactly the ask in partner_ask. Respect billing_count_basis: if it is DSP, the partner's count governs the
+  invoice, so ask the partner to correct and restate its report; never say Apex will invoice on its own count.
+  If it is SSP, Apex's count governs and the invoice stands at the Apex amount.
+- If the root cause implies no billing adjustment, say so, request the reporting fix, and set proposed_adjustment_usd to 0.
 Return JSON only, with keys: case_summary (<=80 words), email_subject, email_body (<=180 words, signed 'Apex Exchange Billing Operations'),
 proposed_adjustment_usd (number; 0 if no adjustment is requested).
 
@@ -129,7 +133,12 @@ ev AS (
     'contract_threshold_pct', discrepancy_threshold_pct, 'billing_count_basis', billing_count_basis,
     'days_missing_in_partner_report', days_missing_in_dsp_report, 'best_fit_timezone_shift_hours', best_shift_hours,
     'predicted_root_cause', predicted_root_cause, 'model_confidence', round(confidence, 2),
-    'recommended_action', recommended_action)) AS evidence
+    'recommended_action', recommended_action,
+    'partner_ask', CASE
+      WHEN predicted_root_cause IN ('TIMEZONE_SHIFT', 'WITHIN_TOLERANCE') THEN 'Correct reporting going forward; no billing adjustment.'
+      WHEN predicted_root_cause = 'IVT_FILTERING' THEN 'Share the third-party IVT report supporting the removed impressions; only verified IVT will be credited.'
+      WHEN billing_count_basis = 'SSP' THEN 'Pay the invoice at the Apex count, which governs under the contract.'
+      ELSE 'Restate the report with corrected counts so the invoice can be reissued.' END)) AS evidence
   FROM ranked WHERE rk <= {MAX_DRAFTS}
 )
 SELECT case_id, evidence,
@@ -176,11 +185,23 @@ def grounded(row):
 
 
 d["dollars_grounded"] = d.apply(grounded, axis=1)
+
+
+def contract_consistent(row):
+    ev = json.loads(row.evidence)
+    text = f"{row.case_summary} {row.email_body}".lower()
+    if ev["billing_count_basis"] == "DSP":
+        return not re.search(r"invoic\w* (?:on|at|based on) (?:the )?apex", text)
+    return True
+
+
+d["contract_consistent"] = d.apply(contract_consistent, axis=1)
 judge = spark.createDataFrame(d[["case_id", "evidence", "email_body"]].head(30)).selectExpr(
     "case_id",
     f"""ai_query('{JUDGE_MODEL}', concat(
       'Rate this dispute email against its evidence. Return JSON only: {{"accuracy":1-5,"tone":1-5,"actionable":1-5,"issue":"<short>"}}.',
-      ' accuracy = every fact matches the evidence; tone = professional and courteous; actionable = clear ask of the partner.',
+      ' accuracy = every fact matches the evidence and the ask respects billing_count_basis (DSP basis: partner must restate; SSP basis: Apex count stands);',
+      ' tone = professional and courteous; actionable = clear ask of the partner.',
       ' EVIDENCE: ', evidence, ' EMAIL: ', email_body),
       modelParameters => named_struct('temperature', 0.0)) AS verdict""").toPandas()
 judge = pd.concat([judge.case_id, judge.verdict.str.extract(r"(\{.*\})", expand=False).apply(json.loads).apply(pd.Series)], axis=1)
@@ -188,6 +209,7 @@ eval_summary = {
     "drafts": len(d),
     "parse_failures": int(d.email_body.isna().sum()),
     "dollars_grounded_rate": round(float(d.dollars_grounded.mean()), 4),
+    "contract_consistent_rate": round(float(d.contract_consistent.mean()), 4),
     "judge_sample": len(judge),
     "judge_mean": judge[["accuracy", "tone", "actionable"]].astype(float).mean().round(2).to_dict(),
     "draft_model": DRAFT_MODEL, "judge_model": JUDGE_MODEL,

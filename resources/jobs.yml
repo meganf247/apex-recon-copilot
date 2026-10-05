@@ -30,9 +30,21 @@ resources:
             notebook_path: ../src/04_score_and_draft.py
             base_parameters:
               catalog: ${var.catalog}
-        - task_key: sync_case_status_to_uc
+        - task_key: apply_governance
           depends_on:
             - task_key: score_and_draft_disputes
+          sql_task:
+            warehouse_id: 75019f3de4c19846
+            file:
+              path: ../src/02_governance.sql
+        - task_key: refresh_lakebase_queue
+          depends_on:
+            - task_key: score_and_draft_disputes
+          pipeline_task:
+            pipeline_id: 248ca05a-ee23-46ed-a2c0-0e442bd0434b  # managed sync: gold.case_workbench -> Lakebase serving.case_workbench
+        - task_key: sync_case_status_to_uc
+          depends_on:
+            - task_key: refresh_lakebase_queue
           notebook_task:
             notebook_path: ../src/07_sync_case_status.py
             base_parameters:

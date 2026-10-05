@@ -140,7 +140,7 @@ for t in pub_type:
             names.append(n)
             break
 pub_ivt = rng.beta(2, 12, N_PUB) + np.where(pub_type == "fast_channel", 0.05, 0.0) - np.where(pub_type == "device_platform", 0.03, 0.0)
-SSAI = {"Stitchwave": 0.5, "PodForge": 1.0, "Splice Media": 1.7}  # relative beacon-loss propensity
+SSAI = {"Stitchwave": 0.7, "PodForge": 1.0, "Splice Media": 1.4}  # relative beacon-loss propensity
 publishers = pd.DataFrame({
     "publisher_id": [f"P{i:04d}" for i in range(1, N_PUB + 1)],
     "publisher_name": names,
@@ -261,6 +261,9 @@ dm_key = deal_ix * N_MON + MON[hour_ix]
 dm_cause = np.full(N_DEAL * N_MON, -1, np.int16)
 dm_param = np.zeros(N_DEAL * N_MON)
 dm_partner = np.full(N_DEAL * N_MON, -1, np.int32)
+dm_cause2 = np.full(N_DEAL * N_MON, -1, np.int16)  # secondary, smaller contributing cause (real cases are often mixed)
+dm_param2 = np.zeros(N_DEAL * N_MON)
+dm_tz = np.zeros(N_DEAL * N_MON, bool)  # partner reported in its local timezone this month
 active = np.unique(dm_key)
 
 deal_dsp_tz = dsp_tz[d_dsp]
@@ -272,13 +275,14 @@ BASE_P = {"IVT_FILTERING": 0.10, "SSAI_BEACON_LOSS": 0.10, "DEAL_ID_MISMAPPING":
 
 for k in active:
     i = k // N_MON
-    if deal_dsp_tz[i] != "UTC":
+    if deal_dsp_tz[i] != "UTC" and rng.random() < 0.7:  # some months the partner gets it right
         dm_cause[k] = C["TIMEZONE_SHIFT"]
+        dm_tz[k] = True
         continue
     w = dsp_offender[d_dsp[i]]
     p = {c: v * w for c, v in BASE_P.items()}
-    p["IVT_FILTERING"] *= deal_ivt[i] / 0.14
-    p["SSAI_BEACON_LOSS"] *= deal_ssai[i] * (1.5 if d_live[i] else 0.8)
+    p["IVT_FILTERING"] *= 0.5 + 0.5 * deal_ivt[i] / 0.14
+    p["SSAI_BEACON_LOSS"] *= deal_ssai[i] * (1.3 if d_live[i] else 0.9)
     p["FX_MISMATCH"] = 0.0 if deal_cur[i] == "USD" else 0.30
     p["WITHIN_TOLERANCE"] = max(0.2, 1 - sum(p.values()))
     names_, probs = list(p), np.array(list(p.values()))
@@ -288,7 +292,8 @@ for k in active:
 for k in active:
     c, i = CAUSES[dm_cause[k]], k // N_MON
     if c == "IVT_FILTERING":
-        dm_param[k] = np.clip(deal_ivt[i] * dsps.ivt_vendor_strictness[d_dsp[i]] * rng.uniform(0.25, 0.5) + 0.03, 0.04, 0.15)
+        dm_param[k] = np.clip(deal_ivt[i] * dsps.ivt_vendor_strictness[d_dsp[i]] * rng.uniform(0.25, 0.5) + 0.03
+                              + rng.normal(0, 0.015), 0.035, 0.15)
     elif c == "SSAI_BEACON_LOSS":
         dm_param[k] = rng.uniform(0.04, 0.11)
     elif c == "FX_MISMATCH":
@@ -313,7 +318,21 @@ for k in [k for k in active if dm_cause[k] == C["DEAL_ID_MISMAPPING"] and dm_par
     dm_cause[j * N_MON + m] = C["DEAL_ID_MISMAPPING"]
     dm_partner[j * N_MON + m] = -2 - i  # receiver marker, encodes the source deal
 
+# Secondary causes: a smaller second effect on ~30% of problem deal-months (and a few clean ones), which is what
+# makes real disputes hard to call. The label stays the primary (larger) cause.
+SECONDARY = ["IVT_FILTERING", "SSAI_BEACON_LOSS", "GENUINE_BILLING_ERROR"]
+for k in active:
+    c = CAUSES[dm_cause[k]]
+    if c == "DEAL_ID_MISMAPPING" or rng.random() > (0.3 if c != "WITHIN_TOLERANCE" else 0.08):
+        continue
+    options = [x for x in SECONDARY if x != c]
+    c2 = rng.choice(options)
+    dm_cause2[k] = C[c2]
+    dm_param2[k] = {"IVT_FILTERING": rng.uniform(0.015, 0.045), "SSAI_BEACON_LOSS": rng.uniform(0.015, 0.04),
+                    "GENUINE_BILLING_ERROR": rng.uniform(0.12, 0.25)}[c2]
+
 print(pd.Series(np.array(CAUSES)[dm_cause[active]]).value_counts().to_string())
+print(f"deal-months with a secondary cause: {(dm_cause2[active] >= 0).sum()}")
 
 # COMMAND ----------
 
@@ -323,19 +342,22 @@ print(pd.Series(np.array(CAUSES)[dm_cause[active]]).value_counts().to_string())
 
 row_cause = dm_cause[dm_key]
 row_param = dm_param[dm_key]
-nat = np.clip(rng.normal(0.012, 0.008, N_DEAL * N_DAYS), -0.01, 0.04)  # normal measurement noise per deal-day
-factor = 1 - nat[deal_ix * N_DAYS + DAY[hour_ix]]
-
-m = row_cause == C["IVT_FILTERING"]
-factor[m] *= 1 - row_param[m] * rng.normal(1, 0.08, m.sum())
-m = row_cause == C["SSAI_BEACON_LOSS"]
-load = CURVE01[d_genre[deal_ix[m]], LH_ET[hour_ix[m]]]
-factor[m] *= 1 - row_param[m] * (0.5 + 0.9 * load) * np.where(d_live[deal_ix[m]], 1.2, 1.0)
-m = row_cause == C["GENUINE_BILLING_ERROR"]
+nat = np.clip(rng.normal(0.015, 0.012, N_DEAL * N_DAYS), -0.02, 0.06)  # normal measurement noise per deal-day
+dd = deal_ix * N_DAYS + DAY[hour_ix]
+factor = 1 - nat[dd]
+ivt_day_noise = rng.normal(1, 0.3, N_DEAL * N_DAYS)  # IVT sweeps vary day to day
 bad_day = rng.random(N_DEAL * N_DAYS)
 bad_mult = rng.uniform(0.55, 0.85, N_DEAL * N_DAYS)
-idx = deal_ix[m] * N_DAYS + DAY[hour_ix[m]]
-factor[m] *= np.where(bad_day[idx] < row_param[m], bad_mult[idx], 1.0)
+
+for cause_arr, param_arr in [(dm_cause, dm_param), (dm_cause2, dm_param2)]:
+    rc, rp = cause_arr[dm_key], param_arr[dm_key]
+    m = rc == C["IVT_FILTERING"]
+    factor[m] *= 1 - rp[m] * np.clip(ivt_day_noise[dd[m]], 0, None)
+    m = rc == C["SSAI_BEACON_LOSS"]
+    load = CURVE01[d_genre[deal_ix[m]], LH_ET[hour_ix[m]]]
+    factor[m] *= 1 - rp[m] * (0.7 + 0.6 * load) * np.where(d_live[deal_ix[m]], 1.15, 1.0)
+    m = rc == C["GENUINE_BILLING_ERROR"]
+    factor[m] *= np.where(bad_day[dd[m]] < rp[m], bad_mult[dd[m]], 1.0)
 
 dsp_imps = np.round(imps * np.clip(factor, 0, None)).astype(np.int64)
 dsp_rev = dsp_imps * cpm_row / 1000
@@ -356,6 +378,7 @@ all_imps = np.concatenate([dsp_imps, extra[2]])
 all_rev = np.concatenate([dsp_rev, extra[3]])
 
 tz_code = pd.Series(deal_dsp_tz[all_rep]).map({t: i for i, t in enumerate(TZS)}).to_numpy()
+tz_code = np.where(dm_tz[all_rep * N_MON + MON[all_hour]], tz_code, 0)  # UTC in months the partner reported correctly
 local_day = LOCAL_DAY[tz_code, all_hour]
 fx_delta = np.where(dm_cause[all_src * N_MON + MON[all_hour]] == C["FX_MISMATCH"], dm_param[all_src * N_MON + MON[all_hour]], 0.0)
 
@@ -499,6 +522,7 @@ gt["deal_idx"], gt["month_idx"] = gt.k // N_MON, gt.k % N_MON
 gt = gt.join(ssp_dm, on="k").join(dsp_dm, on="k").fillna({"dsp_impressions": 0, "dsp_revenue_usd": 0})
 gt["root_cause"] = np.array(CAUSES)[dm_cause[gt.k]]
 gt["effect_param"] = dm_param[gt.k].round(4)
+gt["secondary_cause"] = np.where(dm_cause2[gt.k] >= 0, np.array(CAUSES)[np.maximum(dm_cause2[gt.k], 0)], None)
 partner = dm_partner[gt.k]
 gt["mismap_partner_deal_id"] = np.where(partner >= 0, deals.deal_id.to_numpy()[np.maximum(partner, 0)],
                                         np.where(partner <= -2, deals.deal_id.to_numpy()[np.maximum(-partner - 2, 0)], None))
@@ -509,8 +533,15 @@ gt["revenue_gap_usd"] = (gt.ssp_revenue_usd - gt.dsp_revenue_usd).round(2)
 gt["revenue_gap_pct"] = (100 * gt.revenue_gap_usd / gt.ssp_revenue_usd).round(3)
 
 hist = gt[(gt.month_idx < HISTORY_MONTHS) & ((gt.root_cause != "WITHIN_TOLERANCE") | (rng.random(len(gt)) < 0.2))].copy()
-noisy = rng.random(len(hist)) < 0.05  # analysts occasionally record the wrong cause
-hist["resolved_root_cause"] = np.where(noisy, rng.choice(CAUSES, len(hist)), hist.root_cause)
+# Analysts record the wrong cause ~12% of the time, usually confusing look-alike causes.
+CONFUSABLE = {"IVT_FILTERING": ["SSAI_BEACON_LOSS", "GENUINE_BILLING_ERROR"],
+              "SSAI_BEACON_LOSS": ["IVT_FILTERING", "GENUINE_BILLING_ERROR"],
+              "GENUINE_BILLING_ERROR": ["IVT_FILTERING", "LATE_OR_MISSING_DATA", "SSAI_BEACON_LOSS"],
+              "LATE_OR_MISSING_DATA": ["GENUINE_BILLING_ERROR"], "TIMEZONE_SHIFT": ["WITHIN_TOLERANCE"],
+              "WITHIN_TOLERANCE": ["TIMEZONE_SHIFT", "IVT_FILTERING"], "FX_MISMATCH": ["GENUINE_BILLING_ERROR"],
+              "DEAL_ID_MISMAPPING": ["GENUINE_BILLING_ERROR", "LATE_OR_MISSING_DATA"]}
+noisy = rng.random(len(hist)) < 0.12
+hist["resolved_root_cause"] = [rng.choice(CONFUSABLE[c]) if n else c for c, n in zip(hist.root_cause, noisy)]
 OUTCOME = {"WITHIN_TOLERANCE": ("NO_ADJUSTMENT", 0.0), "TIMEZONE_SHIFT": ("NO_ADJUSTMENT", 0.0),
            "IVT_FILTERING": ("CREDIT_ISSUED", 0.0), "SSAI_BEACON_LOSS": ("PARTIAL_RECOVERY", 0.4),
            "DEAL_ID_MISMAPPING": ("RECOVERED", 0.95), "FX_MISMATCH": ("RECOVERED", 0.9),
@@ -525,7 +556,7 @@ hist[["case_id", "dsp_id", "deal_id", "billing_month", "ssp_impressions", "dsp_i
       "dsp_revenue_usd", "revenue_gap_usd", "revenue_gap_pct", "resolved_root_cause", "resolution_outcome",
       "recovered_usd", "days_to_resolve", "resolved_by"]].round(2).to_csv(f"{ROOT}/history/dispute_resolutions.csv", index=False)
 
-gt_out = gt[["deal_id", "dsp_id", "billing_month", "root_cause", "effect_param", "mismap_partner_deal_id",
+gt_out = gt[["deal_id", "dsp_id", "billing_month", "root_cause", "secondary_cause", "effect_param", "mismap_partner_deal_id",
              "ssp_impressions", "dsp_impressions", "ssp_revenue_usd", "dsp_revenue_usd", "revenue_gap_usd", "revenue_gap_pct"]].copy()
 gt_out["is_history"] = gt.month_idx < HISTORY_MONTHS
 if ON_DATABRICKS:
@@ -562,6 +593,8 @@ summary = {
     "deal_months": int(len(gt)),
     "root_cause_distribution_all": gt.root_cause.value_counts().to_dict(),
     "historical_dispute_cases": int(len(hist)),
+    "history_label_noise_rate": round(float(noisy.mean()), 3),
+    "deal_months_with_secondary_cause": int(gt.secondary_cause.notna().sum()),
     "current_months_revenue_gap_usd_by_cause": cur_gt.groupby("root_cause").revenue_gap_usd.sum().round(0).to_dict(),
     "median_abs_gap_pct_by_cause": gt.groupby("root_cause").revenue_gap_pct.apply(lambda s: s.abs().median()).round(2).to_dict(),
 }

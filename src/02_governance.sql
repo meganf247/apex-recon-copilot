@@ -5,19 +5,19 @@
 --     row update (auditable in table history) rather than a code change.
 --   * Tags classify the sensitive objects; comments document every table for analysts and Genie.
 
-DROP FUNCTION IF EXISTS apex_recon.ops.partner_team_filter;
-DROP TABLE IF EXISTS apex_recon.ops.partner_team_access;
-
 CREATE TABLE IF NOT EXISTS apex_recon.ops.recon_access (
   principal        STRING  COMMENT 'User email or service principal application ID',
   partner_team     STRING  COMMENT 'Partner team whose DSPs this principal may see (Atlantic, Pacific, Central, EMEA), or * for all',
   can_see_revenue  BOOLEAN COMMENT 'TRUE for Finance: may see USD amounts; FALSE: USD columns are masked'
 ) COMMENT 'Access entitlements for reconciliation data. Drives the partner row filter and the revenue column mask.';
 
-INSERT OVERWRITE apex_recon.ops.recon_access VALUES
-  ('megan.fogal@databricks.com',            '*',        TRUE),   -- Finance lead (build owner)
-  ('pm.atlantic@apexexchange.example',      'Atlantic', FALSE),  -- partner manager, Atlantic team
-  ('pm.emea@apexexchange.example',          'EMEA',     FALSE);  -- partner manager, EMEA team
+-- Seed entitlements (idempotent; other principals such as the app service principal are added by their own grants file)
+MERGE INTO apex_recon.ops.recon_access t
+USING (SELECT 'megan.fogal@databricks.com' AS principal, '*' AS partner_team, TRUE AS can_see_revenue  -- Finance lead (build owner)
+       UNION ALL SELECT 'pm.atlantic@apexexchange.example', 'Atlantic', FALSE                          -- partner manager, Atlantic team
+       UNION ALL SELECT 'pm.emea@apexexchange.example', 'EMEA', FALSE) s                               -- partner manager, EMEA team
+ON t.principal = s.principal
+WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *;
 
 CREATE OR REPLACE FUNCTION apex_recon.ops.partner_access_filter(team STRING)
 RETURNS BOOLEAN

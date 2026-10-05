@@ -8,16 +8,16 @@ each discrepancy happened, drafts the partner dispute, and gives Billing Ops one
 
 ## The customer problem
 
-Apex Exchange runs about **$1.7B a year in gross CTV ad spend** (Q3 2026 run rate: $428M). Money flows
+Apex Exchange runs about **$1.7B a year in gross CTV ad spend** (Q3 2026: $428M). Money flows
 DSP → Apex → publisher: the DSP pays Apex the clearing price, Apex keeps its fee (take rate ≈ 16%) and pays the publisher the rest.
 Every month, three systems count the same impressions differently: Apex's auction logs, each DSP's billing report, and
 each publisher's ad server.
 
 - Gaps over the contract threshold (5–10%) become **disputes**. Billing Ops reconciles them by hand across 40 DSPs,
   each with its own file layout, timezone and currency.
-- **Q3 2026: $27.9M of delivered revenue (6.5% of gross) was not matched by DSP reports**, and 921 deal-months needed review.
-- A resolved dispute takes **20.7 days on average (p90: 34 days)**. The analysts' rule of thumb picks the right root cause
-  less than half the time, so effort goes to cases that can't be recovered (timezone artifacts, verified IVT) while
+- **Q3 2026: $32.8M of delivered revenue (7.6% of gross) was not matched by DSP reports**, and 955 deal-months needed review.
+- A resolved dispute takes **21 days on average (p90: 34 days)**. The analysts' rules of thumb pick the right root cause
+  only 47–69% of the time, so effort goes to cases that can't be recovered (timezone artifacts, verified IVT) while
   recoverable money ages.
 - CTV makes it worse: server-side ad insertion (SSAI) beacons, ad pods, live events and a primetime that straddles
   midnight UTC.
@@ -29,14 +29,14 @@ VP Data Engineering (technical).
 
 | Stage | Databricks capability | In this build | Evidence |
 |---|---|---|---|
-| **Ingest** | Lakeflow Spark Declarative Pipelines + Auto Loader | Streams 273 SSP log files (JSON.gz, hourly UTC), 351 DSP billing files in **3 different partner layouts** (incl. EUR/GBP), 1,336 publisher ad server exports and the dispute history from a UC Volume into bronze → silver → gold. **6 data-quality expectations** quarantine bad partner rows with the reasons recorded. | [`evidence/02_pipeline_evidence.md`](evidence/02_pipeline_evidence.md) |
-| **Govern** | Unity Catalog | Medallion schemas + volume; **row filter** (partner managers see only their team's DSPs) and **column masks** (USD amounts for Finance only), both driven by an access table; governed tags; comments on every table; automatic lineage from raw files to the work queue. | [`evidence/05_governance_demo.md`](evidence/05_governance_demo.md), [`evidence/09_lineage.md`](evidence/09_lineage.md) |
-| **Intelligence (ML)** | MLflow + UC Model Registry | Gradient-boosted classifier predicts the **root cause** of each deal-month discrepancy from 24 engineered features (best-fit timezone shift, sibling-deal offset, revenue-vs-impression divergence, missing days, SSAI vendor, live share…). Registered as `apex_recon.ml.discrepancy_root_cause@champion`. | [`evidence/03_train_root_cause_run.md`](evidence/03_train_root_cause_run.md) |
-| **Intelligence (GenAI)** | `ai_query` + Foundation Model APIs | Claude Sonnet 4.6 drafts a case summary and a partner-ready dispute email for the top 250 cases, grounded in a JSON evidence pack. Checked automatically: dollar figures must come from the evidence, plus an LLM judge (GPT-5.4 mini) scores accuracy, tone and actionability. | [`evidence/04_score_and_draft_run.md`](evidence/04_score_and_draft_run.md) |
+| **Ingest** | Lakeflow Spark Declarative Pipelines + Auto Loader | Streams 273 SSP log files (JSON.gz, hourly UTC), 351 DSP billing files in **3 different partner layouts** (incl. EUR/GBP), 1,336 publisher ad server exports and the dispute history from a UC Volume into bronze → silver → gold. **6 data-quality expectations** quarantine bad partner rows with the reasons recorded. | [`evidence/02_pipeline_evidence.md`](evidence/02_pipeline_evidence.md), [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) |
+| **Govern** | Unity Catalog | Medallion schemas + volume; **row filter** (partner managers see only their team's DSPs) and **column masks** (USD amounts for Finance only), both driven by an access table; governed tags; comments on every table; automatic lineage from raw files to the work queue. | [`evidence/05_governance_demo.md`](evidence/05_governance_demo.md), [`evidence/05_governance_task_run.md`](evidence/05_governance_task_run.md), [`evidence/09_lineage.md`](evidence/09_lineage.md) |
+| **Intelligence (ML)** | MLflow + UC Model Registry | Gradient-boosted classifier predicts the **root cause** of each deal-month discrepancy from 24 engineered features (best-fit timezone shift, sibling-deal offset, revenue-vs-impression divergence, missing days, SSAI vendor, live share…). Registered as `apex_recon.ml.discrepancy_root_cause@champion`. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) (task `train_root_cause_model`) |
+| **Intelligence (GenAI)** | `ai_query` + Foundation Model APIs | Claude Sonnet 4.6 drafts a case summary and a partner-ready dispute email for the top 250 cases, grounded in a JSON evidence pack. The prompt follows each contract's billing basis. Checked automatically: dollar figures must come from the evidence, the ask must match the billing basis, and an LLM judge (GPT-5.4 mini) scores accuracy, tone and actionability. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) (task `score_and_draft_disputes`) |
 | **Operational serving** | Lakebase (Postgres, autoscaling) | Gold case queue **synced** into Lakebase (`serving.case_workbench`); the app **writes** case state, an audit trail and credit approvals to `recon.*`; a job snapshots them back into UC (`ops.dispute_case_status`) so Genie and Finance see live status. | [`evidence/07_app_e2e_test.md`](evidence/07_app_e2e_test.md), [`evidence/08_sync_case_status_run.md`](evidence/08_sync_case_status_run.md) |
 | **Natural language** | Genie space | "Apex Exchange · CTV Revenue Reconciliation" over gold, case status and dimensions, with business definitions, sample questions and certified example SQL. Benchmarked against reference SQL. | [`evidence/06_genie_benchmark.md`](evidence/06_genie_benchmark.md) |
 | **Surface** | Databricks App (Streamlit) | **Reconciliation Workbench**: Close overview → Triage queue → Case detail (evidence, AI root cause, editable dispute email, send / resolve / approve credit) → Ask Genie. | [`evidence/07_app_e2e_test.md`](evidence/07_app_e2e_test.md) |
-| **Orchestrate** | Lakeflow Jobs + Databricks Asset Bundle | One job (`apex-recon-build`): generate → pipeline → train → score & draft → sync case status. The pipeline, job and app are all deployed from `databricks.yml`. | [`evidence/01_02_generate_and_pipeline_run.md`](evidence/01_02_generate_and_pipeline_run.md) |
+| **Orchestrate** | Lakeflow Jobs + Databricks Asset Bundle | One job (`apex-recon-build`, 7 tasks): generate → pipeline → train → score & draft → apply governance + refresh Lakebase queue → sync case status. The pipeline, job and app are all deployed from `databricks.yml`. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) |
 
 ```
 Synthetic generator ─► UC Volume /Volumes/apex_recon/landing/raw
@@ -57,19 +57,19 @@ Databricks App ◄── UC (SQL warehouse) + Lakebase (read queue, write cases)
 
 | | Result |
 |---|---|
-| Data landed | 3.54M SSP deal-hours (29.8B impressions, $1.11B gross, Jan–Sep 2026), 157,672 DSP report rows, 158,703 publisher rows |
-| Data quality | 1,718 DSP rows quarantined, each matching an injected defect: 616 unknown deal IDs, 450 duplicates, 309 bad dates, 303 negative impressions, 46 seat mismatches |
-| Reconciliation | September close: Apex $146.8M vs DSP-reported $138.5M; **$9.64M revenue at risk**; 287 deals need review |
-| Root-cause model | Out-of-time (Jul–Sep, 2,009 deal-months): **macro F1 0.973** vs **0.469** for the analysts' playbook rules; holdout on Jan–Jun cases 0.943 vs 0.453 |
-| GenAI drafts | 250 drafts, 0 parse failures, **100% of dollar figures grounded** in evidence; LLM judge 5.0/5 for accuracy, tone and actionability (n=30) |
-| Q3 work queue | 921 cases, $22.6M at risk; **$11.8M recoverable** at Billing Ops' historical recovery rates; $5.6M (323 cases) flagged as timezone / verified-IVT, where chasing won't recover money |
+| Data landed | 3.54M SSP deal-hours (29.8B impressions, $1.11B gross, Jan–Sep 2026), 157,694 DSP report rows, 158,703 publisher rows |
+| Data quality | 1,725 DSP rows quarantined, matching the injected defects: 605 unknown deal IDs, 449 duplicates, 324 bad dates, 321 negative impressions, 32 seat mismatches |
+| Reconciliation | September close: Apex $146.8M vs DSP-reported $137.5M; **$10.26M revenue at risk**; 276 deals need review |
+| Root-cause model | Holdout on Jan–Jun analyst-labelled cases (labels ~11% noisy): **macro F1 0.84** vs **0.43** for the analysts' playbook rules. Out-of-time on Jul–Sep against the planted true causes (2,009 deal-months): **macro F1 0.94, accuracy 95%** vs 0.48 / 69% for the playbook. Weakest classes: missing data (precision 0.79) and IVT (F1 0.90). |
+| GenAI drafts | 250 drafts, 0 parse failures, **100% of dollar figures grounded** in evidence, **98.8% consistent with the contract's billing basis** (3 drafts flagged for an analyst to fix), LLM judge 4.9 / 5.0 / 4.97 for accuracy, tone and actionability (n=30) |
+| Q3 work queue | 955 cases across 38 DSPs, $27.4M at risk; **$14.9M recoverable** at Billing Ops' historical recovery rates; $6.2M (273 cases) flagged as timezone / IVT, where chasing won't recover money |
 | Genie | **12/12** finance questions correct against reference SQL. The first run scored 11/12: on a multi-month "how many DSPs" question Genie returned one row per DSP. Adding a certified example query plus a counting instruction fixed it. |
 | App | Headless end-to-end test PASS: all pages render; a case goes open → dispute sent → resolved with credit, and the rows land in Lakebase |
 
 ## Repo layout
 
 ```
-databricks.yml, resources/        Bundle: pipeline, job (5 tasks), app
+databricks.yml, resources/        Bundle: pipeline, job (7 tasks), app
 src/00_setup_uc.sql               Catalog comment, schemas, landing volume
 src/01_generate_data.py           Synthetic CTV data + planted root causes + DQ defects (runs locally or on serverless)
 src/pipeline/{bronze,silver,gold}.py   Lakeflow Spark Declarative Pipeline
@@ -101,10 +101,12 @@ DATABRICKS_CONFIG_PROFILE=<profile> LAKEBASE_USER=<you> .venv/bin/python tests/a
 
 ## Design choices and limitations
 
-- **Synthetic labels are cleaner than real life.** Each deal-month has exactly one planted cause, and history labels carry
-  only 5% noise, so the model's 0.97 F1 is an upper bound. Real disputes have mixed causes. In a real deployment I'd
-  report per-cause precision, keep a human confirm/override step (the app records `confirmed_root_cause` against the
-  model's call, which becomes new training data), and retrain on resolved cases.
+- **Making the synthetic data realistic.** The first version had one clean cause per case, and the model scored F1 0.97,
+  which wasn't believable. The generator now adds a smaller secondary cause to ~30% of problem cases, ~11% analyst
+  label noise between look-alike causes, timezone partners that report correctly in some months, and wider measurement
+  noise. Against noisy analyst labels the model scores 0.84; against the true causes it scores 0.94, because it learns
+  through the label noise. In production the app records `confirmed_root_cause` against the model's call, which
+  becomes new training data, and per-cause precision is monitored.
 - **Governance uses an access table instead of account groups.** The FE workspace doesn't allow creating account-level
   groups, so the row filter and masks read `ops.recon_access` keyed on `current_user()`. In production this would be
   `is_account_group_member()` on IdP-synced groups. The policy functions stay the same.

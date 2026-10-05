@@ -36,8 +36,8 @@ CTV revenue reconciliation for Apex Exchange</h2>
 Operations · VP Data Engineering</p>
 <hr />
 <h2 id="the-headline">1 · The headline</h2>
-<p><strong>$22.6M of Q3 CTV revenue is in dispute with DSPs. About
-$11.8M of it is recoverable, and today it takes 3 weeks per case to get
+<p><strong>$27.4M of Q3 CTV revenue is in dispute with DSPs. About
+$14.9M of it is recoverable, and today it takes 3 weeks per case to get
 it.</strong></p>
 <p>The Reconciliation Copilot finds every discrepancy the day the
 partner file lands, tells Billing Ops <em>why</em> it happened, drafts
@@ -58,24 +58,24 @@ the dispute, and tracks it to cash, all on one governed platform.</p>
 <tbody>
 <tr>
 <td>Root cause right on first look</td>
-<td>47% (analyst playbook)</td>
-<td><strong>97%</strong> (model, Jul–Sep out-of-time test)</td>
+<td>69% (analyst playbook)</td>
+<td><strong>95%</strong> (model, Jul–Sep out-of-time test)</td>
 </tr>
 <tr>
 <td>Time to resolve a dispute</td>
-<td>20.7 days avg · 34 days p90</td>
+<td>21 days avg · 34 days p90</td>
 <td><strong>Target ≤ 7 days</strong></td>
 </tr>
 <tr>
 <td>Cases worth chasing, identified up front</td>
 <td>Not separated</td>
-<td><strong>323 cases / $5.6M flagged as no-recovery</strong> (timezone,
-verified IVT)</td>
+<td><strong>273 cases / $6.2M flagged as no-recovery</strong> (timezone,
+IVT)</td>
 </tr>
 <tr>
 <td>Partner files with bad rows caught before billing</td>
 <td>Found in spreadsheets, if at all</td>
-<td><strong>1,718 rows quarantined automatically, with the
+<td><strong>1,725 rows quarantined automatically, with the
 reason</strong></td>
 </tr>
 </tbody>
@@ -87,11 +87,11 @@ reason</strong></td>
 Apex pays publishers</strong> (~84% of revenue; Apex keeps a ~16% take
 rate). When a DSP pays on a lower count than Apex owes the publisher,
 <strong>Apex eats the difference</strong>.</li>
-<li>Q3 2026: <strong>$428M gross CTV revenue; $27.9M (6.5%) not matched
+<li>Q3 2026: <strong>$428M gross CTV revenue; $32.8M (7.6%) not matched
 by DSP reports.</strong></li>
-<li>921 deal-months across <strong>39 of 40 DSPs</strong> needed review
+<li>955 deal-months across <strong>38 of 40 DSPs</strong> needed review
 in Q3, about 360 new disputes every month.</li>
-<li>Disputed invoices sit unpaid. At ~$250K of disputed revenue a day,
+<li>Disputed invoices sit unpaid. At ~$300K of disputed revenue a day,
 every day of resolution time is working capital locked up.</li>
 </ul>
 <hr />
@@ -122,48 +122,49 @@ logs</strong>, the <strong>DSP’s billing report</strong>, and the
 <td>Server-side ad insertion beacons don’t fire at peak load and on live
 events</td>
 <td>Partly (40%)</td>
-<td>$5.0M</td>
+<td>$5.7M</td>
 </tr>
 <tr>
 <td>IVT filtering</td>
 <td>DSP’s fraud vendor removes spoofed CTV devices</td>
 <td>Credit if verified</td>
-<td>$4.6M</td>
-</tr>
-<tr>
-<td>Deal-ID mis-mapping</td>
-<td>DSP books delivery under the wrong deal</td>
-<td>Yes (95%)</td>
-<td>$3.8M</td>
-</tr>
-<tr>
-<td>Genuine billing error</td>
-<td>Unexplained under-reporting</td>
-<td>Mostly (60%)</td>
-<td>$3.5M</td>
+<td>$4.8M</td>
 </tr>
 <tr>
 <td>Late / missing data</td>
 <td>Report days never arrive</td>
 <td>Yes (90%)</td>
-<td>$3.2M</td>
+<td>$4.7M</td>
+</tr>
+<tr>
+<td>Deal-ID mis-mapping</td>
+<td>DSP books delivery under the wrong deal</td>
+<td>Yes (95%)</td>
+<td>$4.5M</td>
+</tr>
+<tr>
+<td>Genuine billing error</td>
+<td>Unexplained under-reporting</td>
+<td>Mostly (60%)</td>
+<td>$4.3M</td>
 </tr>
 <tr>
 <td>FX mismatch</td>
 <td>EUR/GBP partners convert at the wrong rate</td>
 <td>Yes (90%)</td>
-<td>$1.3M</td>
+<td>$1.7M</td>
 </tr>
 <tr>
 <td>Timezone shift</td>
 <td>Partner reports in ET/PT; primetime crosses midnight UTC</td>
 <td>No: reporting fix only</td>
-<td>$0.9M</td>
+<td>$1.4M</td>
 </tr>
 </tbody>
 </table>
 <p><em>Recovery rates are Billing Ops’ actual Jan–Jun 2026 outcomes on
-resolved cases.</em></p>
+resolved cases. Real cases are often mixed (e.g. SSAI loss plus some
+IVT); the model names the main cause.</em></p>
 <hr />
 <h2 id="today-vs.-tomorrow">4 · Today vs. tomorrow</h2>
 <p><strong>Today:</strong> download 40 partner portals’ files in 3
@@ -180,18 +181,19 @@ prioritized queue and resolve in one click (Databricks App + Lakebase).
 Reconciliation Workbench (what the analyst sees)</h2>
 <ul>
 <li><strong>Close overview:</strong> September: Apex $146.8M vs
-DSP-reported $138.5M, <strong>$9.64M at risk</strong>, 287 cases open,
+DSP-reported $137.5M, <strong>$10.26M at risk</strong>, 276 cases open,
 recovered-to-date counter.</li>
 <li><strong>Triage queue:</strong> sorted by dollars at risk, with model
 root cause and confidence.</li>
-<li><strong>Case detail:</strong> e.g. <em>Mosaic Bid · Coastal Home
-Screen · Sports PMP, Sept: $423,608 gap (12.2%) vs a 7.5% threshold.
-Model: FX mismatch (99.99%).</em> Daily Apex-vs-DSP chart, evidence
-tiles, AI case summary, an editable dispute email, and Send / Resolve /
-Approve credit buttons.</li>
+<li><strong>Case detail:</strong> e.g. <em>Willow Demand · Evergreen
+Movies FAST · Sports PMP, Sept: $347,168 gap (45%) vs a 5% threshold.
+Model: deal-ID mis-mapping (99.6%): a sibling deal shows the
+mirror-image surplus.</em> Daily Apex-vs-DSP chart, evidence tiles, AI
+case summary, an editable dispute email, and Send / Resolve / Approve
+credit buttons.</li>
 <li><strong>Ask Genie:</strong> <em>“What’s our revenue at risk by
-partner team for September?”</em> → Pacific $5.26M, EMEA $1.74M, Central
-$1.49M, Atlantic $1.16M.</li>
+partner team for September?”</em> → Pacific $5.28M, Central $1.96M,
+Atlantic $1.62M, EMEA $1.40M.</li>
 </ul>
 <hr />
 <h2 id="impact-on-your-kpis">6 · Impact on your KPIs</h2>
@@ -213,29 +215,29 @@ $1.49M, Atlantic $1.16M.</li>
 <tbody>
 <tr>
 <td>Revenue recovered from DSPs (CFO)</td>
-<td>Recoverable exposure $11.8M / quarter; team reaches ~60% of cases
+<td>Recoverable exposure $14.9M / quarter; team reaches ~60% of cases
 today*</td>
 <td>Pursue 100% of recoverable cases</td>
-<td><strong>≈ $19M / year</strong></td>
+<td><strong>≈ $24M / year</strong></td>
 </tr>
 <tr>
 <td>Dispute cycle time / DSO (CFO)</td>
-<td>20.7 days avg</td>
+<td>21 days avg</td>
 <td>≤ 7 days</td>
-<td><strong>≈ $3.4M cash released</strong> (one-time; ~$250K/day × 14
+<td><strong>≈ $4.2M cash released</strong> (one-time; ~$300K/day × 14
 days faster)</td>
 </tr>
 <tr>
 <td>Analyst effort (Billing Ops)</td>
-<td>~360 cases/month × ~2.5 h each* ≈ 5.6 FTE</td>
+<td>~360 cases/month × ~2.5 h each* ≈ 5.7 FTE</td>
 <td>~45 min per case (draft + evidence ready)</td>
-<td><strong>≈ 3.9 FTE redeployed</strong></td>
+<td><strong>≈ 4 FTE redeployed</strong></td>
 </tr>
 <tr>
 <td>Wasted effort (Billing Ops)</td>
 <td>Every flagged case gets chased</td>
-<td>35% of queue triaged as no-recovery</td>
-<td>323 cases / quarter not chased</td>
+<td>29% of queue triaged as no-recovery</td>
+<td>273 cases / quarter not chased</td>
 </tr>
 <tr>
 <td>Month-end close (CFO)</td>
@@ -251,7 +253,7 @@ figures are computed from the build’s data.</p>
 <hr />
 <h2 id="for-the-cfo">7 · For the CFO</h2>
 <ul>
-<li><strong>More cash, sooner:</strong> ≈ $19M a year of recoverable
+<li><strong>More cash, sooner:</strong> ≈ $24M a year of recoverable
 revenue that currently goes stale, plus faster collection on disputed
 invoices.</li>
 <li><strong>Audit-ready:</strong> every number traces from the partner
@@ -269,12 +271,13 @@ Billing Operations</h2>
 <ul>
 <li>One queue, ranked by dollars, so the team works the right cases
 first.</li>
-<li>Root cause on first look 97% of the time, vs 47% with today’s rules
-of thumb. Analysts confirm or override, and that feedback retrains the
-model.</li>
-<li>Dispute emails drafted from the evidence: 250 drafts, every dollar
-figure checked against the source, rated 5/5 for accuracy and tone by an
-independent AI judge.</li>
+<li>Root cause right on first look 95% of the time, vs 69% with today’s
+rules of thumb, even on mixed-cause cases. Analysts confirm or override,
+and that feedback retrains the model.</li>
+<li>Dispute emails drafted from the evidence and the contract: 250
+drafts, every dollar figure checked against the source, each ask checked
+against the contract’s billing basis (3 flagged for review), rated 4.9/5
+for accuracy by an independent AI judge.</li>
 <li>Bad partner files caught on arrival (unknown deals, duplicates, bad
 dates, negative counts, wrong seat), not at month-end.</li>
 </ul>
@@ -330,11 +333,13 @@ database or BI tool to stitch together.</p>
 <li>3.54M hourly log rows, 157K DSP report rows and 159K publisher rows
 ingested, covering 9 months, 40 DSPs, 150 CTV publishers and 800
 deals.</li>
-<li>1,718 bad partner rows quarantined, matching the defects injected
+<li>1,725 bad partner rows quarantined, matching the defects injected
 into the partner files.</li>
-<li>Root-cause model: macro F1 <strong>0.97</strong> out-of-time vs
-<strong>0.47</strong> for the current playbook.</li>
-<li>GenAI: 100% of dollar figures grounded; 0 parse failures.</li>
+<li>Root-cause model: macro F1 <strong>0.94</strong> out-of-time vs
+<strong>0.48</strong> for the current playbook (0.84 vs 0.43 against
+noisy analyst labels).</li>
+<li>GenAI: 100% of dollar figures grounded; 98.8% contract-consistent; 0
+parse failures.</li>
 <li>Genie: <strong>12/12</strong> finance questions answered correctly
 against independently written reference SQL.</li>
 <li>App: end-to-end test from case open → dispute sent → resolved with
@@ -358,7 +363,7 @@ credit, written to Lakebase and visible in Genie.</li>
 <tbody>
 <tr>
 <td>Days 0–30</td>
-<td>Pilot with the <strong>top 5 DSPs (49% of Q3 revenue at
+<td>Pilot with the <strong>top 5 DSPs (48% of Q3 revenue at
 risk)</strong> on Apex’s real partner files; analysts run the workbench
 alongside spreadsheets</td>
 <td>Root-cause agreement with analysts ≥ 85%</td>
