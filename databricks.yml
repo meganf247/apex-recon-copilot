@@ -1,0 +1,17 @@
+bundle:
+  name: apex-recon-copilot
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for all Apex Exchange reconciliation assets
+    default: apex_recon
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fevm-serverless-3dmees.cloud.databricks.com

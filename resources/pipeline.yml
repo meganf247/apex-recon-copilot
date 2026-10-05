@@ -1,0 +1,18 @@
+resources:
+  pipelines:
+    apex_recon_pipeline:
+      name: apex-recon-pipeline
+      catalog: ${var.catalog}
+      schema: bronze
+      serverless: true
+      channel: CURRENT
+      photon: true
+      configuration:
+        apex.catalog: ${var.catalog}
+      libraries:
+        - file:
+            path: ../src/pipeline/bronze.py
+        - file:
+            path: ../src/pipeline/silver.py
+        - file:
+            path: ../src/pipeline/gold.py

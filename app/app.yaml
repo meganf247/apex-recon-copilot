@@ -1,0 +1,14 @@
+command: ["streamlit", "run", "app.py", "--server.headless", "true"]
+env:
+  - name: APEX_CATALOG
+    value: apex_recon
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: GENIE_SPACE_ID
+    valueFrom: genie-space
+  - name: LAKEBASE_ENDPOINT
+    value: projects/apex-recon/branches/production/endpoints/primary
+  - name: LAKEBASE_HOST
+    value: ep-crimson-term-d2b11cr0.database.us-east-1.cloud.databricks.com
+  - name: LAKEBASE_DATABASE
+    value: apex_ops
