@@ -131,7 +131,7 @@ No data leaves the platform, and there's no separate operational database or BI 
 - 1,718 bad partner rows quarantined, matching the defects injected into the partner files.
 - Root-cause model: macro F1 **0.97** out-of-time vs **0.47** for the current playbook.
 - GenAI: 100% of dollar figures grounded; 0 parse failures.
-- Genie: benchmarked against reference SQL on finance questions (see `evidence/06_genie_benchmark.md`).
+- Genie: **12/12** finance questions answered correctly against independently written reference SQL.
 - App: end-to-end test from case open → dispute sent → resolved with credit, written to Lakebase and visible in Genie.
 
 ---

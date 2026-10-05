@@ -26,6 +26,7 @@ Definitions:
 - Root causes (predicted_root_cause / confirmed_root_cause): WITHIN_TOLERANCE, TIMEZONE_SHIFT, IVT_FILTERING, SSAI_BEACON_LOSS, DEAL_ID_MISMAPPING, FX_MISMATCH, LATE_OR_MISSING_DATA, GENUINE_BILLING_ERROR. Present them in plain words (e.g. "SSAI beacon loss").
 - Dispute workflow status lives in ops.dispute_case_status (OPEN, IN_REVIEW, SENT_TO_PARTNER, RESOLVED). A case with no row there is OPEN.
 - Prefer gold.recon_partner_month for partner-level questions, gold.recon_deal_month for deal-level questions, gold.dispute_queue for open cases and model root causes.
+Counting: when asked "how many" partners/deals meet a condition across several months, return ONE row with the count (aggregate per entity in a subquery, then count).
 Formatting: report money in USD rounded to whole dollars, percentages to one decimal. Sort by revenue at risk descending unless asked otherwise."""
 
 QUESTIONS = [
@@ -47,6 +48,10 @@ FROM {C}.gold.recon_partner_month WHERE billing_month = '2026-09' ORDER BY reven
 FROM {C}.gold.recon_partner_month WHERE billing_month IN ('2026-07','2026-08','2026-09')
 GROUP BY dsp_name, partner_team HAVING sum(CASE WHEN over_threshold THEN 1 ELSE 0 END) = 3
 ORDER BY q3_revenue_at_risk_usd DESC"""),
+    ("How many DSPs were over threshold in every month of Q3",
+     f"""SELECT count(*) AS dsps_over_threshold_all_q3_months FROM (
+  SELECT dsp_id FROM {C}.gold.recon_partner_month WHERE billing_month IN ('2026-07','2026-08','2026-09')
+  GROUP BY dsp_id HAVING sum(CASE WHEN over_threshold THEN 1 ELSE 0 END) = 3)"""),
     ("Revenue at risk by root cause this quarter",
      f"""SELECT predicted_root_cause, count(*) AS cases, round(sum(revenue_at_risk_usd)) AS revenue_at_risk_usd
 FROM {C}.gold.dispute_queue GROUP BY predicted_root_cause ORDER BY revenue_at_risk_usd DESC"""),

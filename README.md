@@ -63,7 +63,7 @@ Databricks App ◄── UC (SQL warehouse) + Lakebase (read queue, write cases)
 | Root-cause model | Out-of-time (Jul–Sep, 2,009 deal-months): **macro F1 0.973** vs **0.469** for the analysts' playbook rules; holdout on Jan–Jun cases 0.943 vs 0.453 |
 | GenAI drafts | 250 drafts, 0 parse failures, **100% of dollar figures grounded** in evidence; LLM judge 5.0/5 for accuracy, tone and actionability (n=30) |
 | Q3 work queue | 921 cases, $22.6M at risk; **$11.8M recoverable** at Billing Ops' historical recovery rates; $5.6M (323 cases) flagged as timezone / verified-IVT, where chasing won't recover money |
-| Genie | See benchmark accuracy in `evidence/06_genie_benchmark.md` |
+| Genie | **12/12** finance questions correct against reference SQL. The first run scored 11/12: on a multi-month "how many DSPs" question Genie returned one row per DSP. Adding a certified example query plus a counting instruction fixed it. |
 | App | Headless end-to-end test PASS: all pages render; a case goes open → dispute sent → resolved with credit, and the rows land in Lakebase |
 
 ## Repo layout
