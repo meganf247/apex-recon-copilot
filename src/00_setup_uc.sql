@@ -12,3 +12,5 @@ CREATE SCHEMA IF NOT EXISTS apex_recon.ops     COMMENT 'Operational reference da
 
 CREATE VOLUME IF NOT EXISTS apex_recon.landing.raw
   COMMENT 'Landing zone: ssp_logs (JSON.gz, hourly UTC), dsp_reports (CSV, 3 partner formats), publisher_reports (CSV, ad server exports), reference, history.';
+
+CREATE SCHEMA IF NOT EXISTS apex_recon.serving COMMENT 'Lakebase synced tables: gold data served to the Reconciliation Workbench app from Postgres.';

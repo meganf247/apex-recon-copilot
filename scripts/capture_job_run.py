@@ -1,5 +1,6 @@
 """Capture a Databricks job run as text evidence: task states and durations, each notebook's exit summary,
-and, for pipeline tasks, row counts and data-quality expectation results from the pipeline event log.
+and, for pipeline tasks, the update state. Row counts and expectation results for pipeline updates come from the
+pipeline event log via SQL (see evidence/sql/02_pipeline_evidence.sql), because the CLI event listing omits metrics.
 
 Usage: python scripts/capture_job_run.py <run_id> evidence/<file>.md [--profile megan-fevm]
 """
@@ -18,31 +19,6 @@ def cli(profile, *args):
 
 def ts(ms):
     return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if ms else ""
-
-
-def pipeline_section(profile, pipeline_id, update_id):
-    events = cli(profile, "pipelines", "list-pipeline-events", pipeline_id, "--max-results", "250")
-    events = [e for e in events if e.get("origin", {}).get("update_id") == update_id]
-    flows = {}
-    for e in events:
-        if e.get("event_type") != "flow_progress":
-            continue
-        fp = e.get("details", {}).get("flow_progress", {})
-        if fp.get("status") != "COMPLETED":
-            continue
-        name = e["origin"].get("flow_name") or e["origin"].get("dataset_name")
-        flows[name] = {"rows": fp.get("metrics", {}).get("num_output_rows"),
-                       "dropped": fp.get("data_quality", {}).get("dropped_records"),
-                       "expectations": fp.get("data_quality", {}).get("expectations", [])}
-    lines = ["| Dataset | Output rows | Dropped by expectations |", "|---|---:|---:|"]
-    for name in sorted(flows):
-        f = flows[name]
-        lines.append(f"| `{name}` | {f['rows'] if f['rows'] is not None else ''} | {f['dropped'] or ''} |")
-    exp = [(n, x) for n, f in flows.items() for x in f["expectations"]]
-    if exp:
-        lines += ["", "**Expectation results**", "", "| Dataset | Expectation | Passed | Failed |", "|---|---|---:|---:|"]
-        lines += [f"| `{n}` | {x['name']} | {x.get('passed_records', 0)} | {x.get('failed_records', 0)} |" for n, x in sorted(exp)]
-    return "\n".join(lines)
 
 
 if __name__ == "__main__":
@@ -68,7 +44,7 @@ if __name__ == "__main__":
             info = t.get("pipeline_task", {})
             upd = cli(a.profile, "pipelines", "list-updates", info["pipeline_id"]).get("updates", [{}])[0]
             md += [f"Pipeline `{info['pipeline_id']}`, update `{upd.get('update_id')}` → **{upd.get('state')}**", "",
-                   pipeline_section(a.profile, info["pipeline_id"], upd.get("update_id"))]
+                   "Rows written and expectation results: see `evidence/02_pipeline_evidence.md`."]
             continue
         out = cli(a.profile, "jobs", "get-run-output", str(t["run_id"]))
         result = out.get("notebook_output", {}).get("result")

@@ -80,5 +80,4 @@
 
 Pipeline `5d44a671-5813-463d-903e-33ca04bb3376`, update `b22496e9-3dfb-44ba-9e37-b8a8fc495095` → **COMPLETED**
 
-| Dataset | Output rows | Dropped by expectations |
-|---|---:|---:|
+Rows written and expectation results: see `evidence/02_pipeline_evidence.md`.

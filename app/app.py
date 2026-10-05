@@ -45,7 +45,7 @@ def uc(query: str) -> pd.DataFrame:
 
 def pg():
     token = w.postgres.generate_database_credential(endpoint=PG_ENDPOINT).token
-    return psycopg.connect(host=PG_HOST, dbname=PG_DB, user=cfg.client_id or USER, password=token,
+    return psycopg.connect(host=PG_HOST, dbname=PG_DB, user=os.getenv("LAKEBASE_USER") or cfg.client_id or USER, password=token,
                            sslmode="require", autocommit=True)
 
 
@@ -81,7 +81,7 @@ def ensure_case(row):
 def queue(month: str) -> pd.DataFrame:
     return pg_df("""
         SELECT q.*, coalesce(c.status, 'OPEN') AS status, c.owner, c.resolution, c.recovered_usd, c.updated_at
-        FROM recon.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id)
+        FROM serving.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id)
         WHERE q.billing_month = %s ORDER BY q.revenue_at_risk_usd DESC NULLS LAST""", (month,))
 
 
@@ -98,7 +98,7 @@ def overview():
     cur = pm[pm.billing_month == month]
     cases = pg_df("""SELECT coalesce(c.status,'OPEN') AS status, count(*) AS n, sum(q.revenue_at_risk_usd) AS usd,
                             sum(coalesce(c.recovered_usd,0)) AS recovered
-                     FROM recon.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id)
+                     FROM serving.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id)
                      WHERE q.billing_month = %s GROUP BY 1""", (month,))
     k = st.columns(5)
     k[0].metric("Gross CTV revenue (Apex)", usd(cur.ssp_revenue_usd.sum()))
@@ -116,26 +116,26 @@ def overview():
             y=alt.Y("dsp_name:N", sort="-x", title=None),
             color=alt.condition(alt.datum.over_threshold, alt.value("#d1495b"), alt.value("#8d99ae")),
             tooltip=["dsp_name", "partner_team", "deals_needing_review", "revenue_gap_pct", "revenue_at_risk_usd"]),
-            use_container_width=True)
+            width="stretch")
         st.caption("Red = monthly gap over the partner's contract threshold.")
     with right:
         st.subheader("Why revenue is at risk (model root cause)")
         by_cause = pg_df("""SELECT predicted_root_cause, count(*) AS cases, sum(revenue_at_risk_usd) AS usd
-                            FROM recon.case_workbench WHERE billing_month = %s GROUP BY 1 ORDER BY 3 DESC""", (month,))
+                            FROM serving.case_workbench WHERE billing_month = %s GROUP BY 1 ORDER BY 3 DESC""", (month,))
         st.altair_chart(alt.Chart(by_cause).mark_arc(innerRadius=60).encode(
             theta="usd:Q", color=alt.Color("predicted_root_cause:N", title="Root cause"),
-            tooltip=["predicted_root_cause", "cases", "usd"]), use_container_width=True)
+            tooltip=["predicted_root_cause", "cases", "usd"]), width="stretch")
     st.subheader("Trend")
     trend = uc(f"""SELECT billing_month, round(sum(revenue_at_risk_usd)) AS revenue_at_risk_usd,
                           round(100 * sum(revenue_gap_usd) / sum(ssp_revenue_usd), 2) AS net_gap_pct
                    FROM {CATALOG}.gold.recon_partner_month GROUP BY 1 ORDER BY 1""")
     st.altair_chart(alt.Chart(trend).mark_line(point=True).encode(x="billing_month:N", y="revenue_at_risk_usd:Q"),
-                    use_container_width=True)
+                    width="stretch")
 
 
 def triage():
     st.title("Triage queue")
-    months = pg_df("SELECT DISTINCT billing_month FROM recon.case_workbench ORDER BY 1").billing_month.tolist()
+    months = pg_df("SELECT DISTINCT billing_month FROM serving.case_workbench ORDER BY 1").billing_month.tolist()
     c1, c2, c3 = st.columns(3)
     month = c1.selectbox("Billing month", months, index=len(months) - 1)
     q = queue(month)
@@ -148,7 +148,7 @@ def triage():
     st.caption(f"{len(q)} cases · {usd(q.revenue_at_risk_usd.sum())} at risk · sorted by revenue at risk")
     view = q[["case_id", "dsp_name", "deal_name", "revenue_at_risk_usd", "revenue_gap_pct", "predicted_root_cause",
               "confidence", "status", "owner"]]
-    sel = st.dataframe(view, hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row",
+    sel = st.dataframe(view, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
                        column_config={"revenue_at_risk_usd": st.column_config.NumberColumn("At risk", format="$%,.0f"),
                                       "revenue_gap_pct": st.column_config.NumberColumn("Gap %", format="%.1f%%"),
                                       "confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=1)})
@@ -165,7 +165,7 @@ def case_detail():
         return
     row = pg_df("""SELECT q.*, coalesce(c.status,'OPEN') AS status, c.owner, c.resolution, c.recovered_usd,
                           c.confirmed_root_cause, c.dispute_email_sent
-                   FROM recon.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id) WHERE case_id = %s""",
+                   FROM serving.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id) WHERE case_id = %s""",
                 (case_id,)).iloc[0]
     ensure_case(row)
     st.title(f"{row.dsp_name} · {row.deal_name}")
@@ -185,7 +185,7 @@ def case_detail():
     st.altair_chart(alt.Chart(long).mark_line(point=True).encode(
         x=alt.X("recon_date:T", title=None), y="impressions:Q",
         color=alt.Color("source:N", scale=alt.Scale(range=["#2b6cb0", "#d1495b"]))).properties(height=260),
-        use_container_width=True)
+        width="stretch")
     ev = st.columns(4)
     ev[0].metric("Days missing in DSP report", int(row.days_missing_in_dsp_report))
     ev[1].metric("Best-fit timezone shift", f"{int(row.best_shift_hours)} h", f"gap shrinks {row.tz_shift_gain:.1f} pts",
@@ -232,7 +232,7 @@ def case_detail():
         pg_exec([log_event(case_id, "NOTE", {"note": note})])
     st.subheader("Audit trail")
     st.dataframe(pg_df("SELECT created_at, event_type, actor, detail FROM recon.case_events WHERE case_id=%s ORDER BY created_at DESC",
-                       (case_id,)), hide_index=True, use_container_width=True)
+                       (case_id,)), hide_index=True, width="stretch")
 
 
 def ask_genie():

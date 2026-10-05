@@ -1,52 +1,51 @@
 -- Unity Catalog governance for partner revenue data.
---   * Finance and Data Engineering see every partner; partner managers see only DSPs their team owns (row filter).
---   * Dollar amounts are Finance-confidential: masked for anyone outside apex_finance (column mask).
---   * Governed tags classify the sensitive columns; comments document every gold table for analysts and Genie.
+--   * Row filter: Finance sees every partner; a partner manager sees only the DSPs their team owns.
+--   * Column mask: dollar amounts are Finance-confidential; everyone else sees NULL.
+--   * Both policies are driven by one access table keyed on the signed-in principal, so access changes are a
+--     row update (auditable in table history) rather than a code change.
+--   * Tags classify the sensitive objects; comments document every table for analysts and Genie.
 
-CREATE TABLE IF NOT EXISTS apex_recon.ops.partner_team_access (
-  group_name   STRING COMMENT 'Workspace group of partner managers',
-  partner_team STRING COMMENT 'Partner team that owns a set of DSP relationships (matches dim_dsps.partner_team)'
-) COMMENT 'Which partner-manager group may see which DSP partner team. Drives the partner row filter.';
+DROP FUNCTION IF EXISTS apex_recon.ops.partner_team_filter;
+DROP TABLE IF EXISTS apex_recon.ops.partner_team_access;
 
-INSERT OVERWRITE apex_recon.ops.partner_team_access VALUES
-  ('apex_partner_atlantic', 'Atlantic'),
-  ('apex_partner_pacific',  'Pacific'),
-  ('apex_partner_central',  'Central'),
-  ('apex_partner_emea',     'EMEA');
+CREATE TABLE IF NOT EXISTS apex_recon.ops.recon_access (
+  principal        STRING  COMMENT 'User email or service principal application ID',
+  partner_team     STRING  COMMENT 'Partner team whose DSPs this principal may see (Atlantic, Pacific, Central, EMEA), or * for all',
+  can_see_revenue  BOOLEAN COMMENT 'TRUE for Finance: may see USD amounts; FALSE: USD columns are masked'
+) COMMENT 'Access entitlements for reconciliation data. Drives the partner row filter and the revenue column mask.';
 
-CREATE OR REPLACE FUNCTION apex_recon.ops.partner_team_filter(team STRING)
+INSERT OVERWRITE apex_recon.ops.recon_access VALUES
+  ('megan.fogal@databricks.com',            '*',        TRUE),   -- Finance lead (build owner)
+  ('pm.atlantic@apexexchange.example',      'Atlantic', FALSE),  -- partner manager, Atlantic team
+  ('pm.emea@apexexchange.example',          'EMEA',     FALSE);  -- partner manager, EMEA team
+
+CREATE OR REPLACE FUNCTION apex_recon.ops.partner_access_filter(team STRING)
 RETURNS BOOLEAN
-COMMENT 'Row filter: apex_finance and apex_data_engineering see all partners; partner managers only see DSPs owned by their team.'
-RETURN is_account_group_member('apex_finance')
-    OR is_account_group_member('apex_data_engineering')
-    OR EXISTS (SELECT 1 FROM apex_recon.ops.partner_team_access a
-               WHERE a.partner_team = team AND is_account_group_member(a.group_name));
+COMMENT 'Row filter: a principal sees a row only if ops.recon_access grants them that partner team (or * for all teams).'
+RETURN EXISTS (SELECT 1 FROM apex_recon.ops.recon_access a
+               WHERE a.principal = current_user() AND (a.partner_team = '*' OR a.partner_team = team));
 
 CREATE OR REPLACE FUNCTION apex_recon.ops.finance_only_usd(amount DOUBLE)
 RETURNS DOUBLE
-COMMENT 'Column mask: dollar amounts are visible to apex_finance only; everyone else sees NULL.'
-RETURN CASE WHEN is_account_group_member('apex_finance') THEN amount ELSE NULL END;
+COMMENT 'Column mask: USD amounts are visible only to principals with can_see_revenue in ops.recon_access; others see NULL.'
+RETURN CASE WHEN EXISTS (SELECT 1 FROM apex_recon.ops.recon_access a
+                         WHERE a.principal = current_user() AND a.can_see_revenue) THEN amount ELSE NULL END;
 
--- Work queue (plain Delta table written by 04_score_and_draft): row filter + revenue masks.
-ALTER TABLE apex_recon.gold.dispute_queue SET ROW FILTER apex_recon.ops.partner_team_filter ON (partner_team);
+-- Billing Ops work queue: row filter + revenue masks.
+ALTER TABLE apex_recon.gold.dispute_queue SET ROW FILTER apex_recon.ops.partner_access_filter ON (partner_team);
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN ssp_revenue_usd     SET MASK apex_recon.ops.finance_only_usd;
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN dsp_revenue_usd     SET MASK apex_recon.ops.finance_only_usd;
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_gap_usd     SET MASK apex_recon.ops.finance_only_usd;
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_at_risk_usd SET MASK apex_recon.ops.finance_only_usd;
 
--- Classification tags
-ALTER TABLE apex_recon.gold.dispute_queue SET TAGS ('domain' = 'billing', 'data_owner' = 'revenue_accounting');
-ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN ssp_revenue_usd     SET TAGS ('data_classification' = 'financial_confidential');
-ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN dsp_revenue_usd     SET TAGS ('data_classification' = 'financial_confidential');
-ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_gap_usd     SET TAGS ('data_classification' = 'financial_confidential');
-ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_at_risk_usd SET TAGS ('data_classification' = 'financial_confidential');
-ALTER TABLE apex_recon.gold.dispute_drafts SET TAGS ('domain' = 'billing', 'contains' = 'genai_generated_text');
+-- Classification tags (domain uses the workspace's governed tag policy values)
+ALTER TABLE apex_recon.gold.dispute_queue          SET TAGS ('domain' = 'finance');
+ALTER TABLE apex_recon.gold.case_workbench         SET TAGS ('domain' = 'finance');
+ALTER TABLE apex_recon.gold.dispute_drafts         SET TAGS ('domain' = 'finance', 'contains' = 'genai_generated_text');
+ALTER TABLE apex_recon.gold.recon_deal_month       SET TAGS ('domain' = 'finance');
+ALTER TABLE apex_recon.gold.recon_partner_month    SET TAGS ('domain' = 'finance');
 ALTER TABLE apex_recon.ml.ground_truth_root_causes SET TAGS ('usage' = 'evaluation_only');
-
--- Access for the teams
-GRANT USE CATALOG ON CATALOG apex_recon TO `apex_finance`;
-GRANT USE CATALOG ON CATALOG apex_recon TO `apex_data_engineering`;
-GRANT USE SCHEMA, SELECT ON SCHEMA apex_recon.gold TO `apex_finance`;
-GRANT USE SCHEMA, SELECT ON SCHEMA apex_recon.gold TO `apex_data_engineering`;
-GRANT ALL PRIVILEGES ON SCHEMA apex_recon.bronze TO `apex_data_engineering`;
-GRANT ALL PRIVILEGES ON SCHEMA apex_recon.silver TO `apex_data_engineering`;
+ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN ssp_revenue_usd     SET TAGS ('sensitivity' = 'internal');
+ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN dsp_revenue_usd     SET TAGS ('sensitivity' = 'internal');
+ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_gap_usd     SET TAGS ('sensitivity' = 'internal');
+ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_at_risk_usd SET TAGS ('sensitivity' = 'internal');

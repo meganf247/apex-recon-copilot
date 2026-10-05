@@ -30,3 +30,10 @@ resources:
             notebook_path: ../src/04_score_and_draft.py
             base_parameters:
               catalog: ${var.catalog}
+        - task_key: sync_case_status_to_uc
+          depends_on:
+            - task_key: score_and_draft_disputes
+          notebook_task:
+            notebook_path: ../src/07_sync_case_status.py
+            base_parameters:
+              catalog: ${var.catalog}

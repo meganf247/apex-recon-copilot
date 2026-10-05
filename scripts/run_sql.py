@@ -22,7 +22,7 @@ def api(profile, method, path, body=None):
 
 def split_statements(sql):
     sql = re.sub(r"--[^\n]*", "", sql)
-    return [s.strip() for s in sql.split(";") if s.strip()]
+    return [s.strip() for s in re.split(r";[ \t]*(?:\n|$)", sql) if s.strip()]
 
 
 def run(profile, warehouse, statement):

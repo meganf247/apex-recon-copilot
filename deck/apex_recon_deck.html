@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Apex Exchange · CTV Revenue Reconciliation</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="deck.css" />
+</head>
+<body>
+<h1 id="close-faster-recover-more">Close faster, recover more</h1>
+<h2
+id="ai-powered-ctv-revenue-reconciliation-for-apex-exchange">AI-powered
+CTV revenue reconciliation for Apex Exchange</h2>
+<p>Prepared for: CFO / VP Revenue Accounting · Director of Billing
+Operations · VP Data Engineering</p>
+<hr />
+<h2 id="the-headline">1 · The headline</h2>
+<p><strong>$22.6M of Q3 CTV revenue is in dispute with DSPs. About
+$11.8M of it is recoverable, and today it takes 3 weeks per case to get
+it.</strong></p>
+<p>The Reconciliation Copilot finds every discrepancy the day the
+partner file lands, tells Billing Ops <em>why</em> it happened, drafts
+the dispute, and tracks it to cash, all on one governed platform.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>What changes</th>
+<th>Today</th>
+<th>With the Copilot</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Root cause right on first look</td>
+<td>47% (analyst playbook)</td>
+<td><strong>97%</strong> (model, Jul–Sep out-of-time test)</td>
+</tr>
+<tr>
+<td>Time to resolve a dispute</td>
+<td>20.7 days avg · 34 days p90</td>
+<td><strong>Target ≤ 7 days</strong></td>
+</tr>
+<tr>
+<td>Cases worth chasing, identified up front</td>
+<td>Not separated</td>
+<td><strong>323 cases / $5.6M flagged as no-recovery</strong> (timezone,
+verified IVT)</td>
+</tr>
+<tr>
+<td>Partner files with bad rows caught before billing</td>
+<td>Found in spreadsheets, if at all</td>
+<td><strong>1,718 rows quarantined automatically, with the
+reason</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="why-this-matters-to-apex">2 · Why this matters to Apex</h2>
+<ul>
+<li>Apex sits in the middle of the money: <strong>DSPs pay Apex, and
+Apex pays publishers</strong> (~84% of revenue; Apex keeps a ~16% take
+rate). When a DSP pays on a lower count than Apex owes the publisher,
+<strong>Apex eats the difference</strong>.</li>
+<li>Q3 2026: <strong>$428M gross CTV revenue; $27.9M (6.5%) not matched
+by DSP reports.</strong></li>
+<li>921 deal-months across <strong>39 of 40 DSPs</strong> needed review
+in Q3, about 360 new disputes every month.</li>
+<li>Disputed invoices sit unpaid. At ~$250K of disputed revenue a day,
+every day of resolution time is working capital locked up.</li>
+</ul>
+<hr />
+<h2
+id="why-ctv-discrepancies-happen-and-why-spreadsheets-cant-keep-up">3 ·
+Why CTV discrepancies happen (and why spreadsheets can’t keep up)</h2>
+<p>Three systems count the same impression: <strong>Apex’s auction
+logs</strong>, the <strong>DSP’s billing report</strong>, and the
+<strong>publisher’s ad server</strong>.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Root cause</th>
+<th>What happens in CTV</th>
+<th>Recoverable?</th>
+<th>Q3 exposure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SSAI beacon loss</td>
+<td>Server-side ad insertion beacons don’t fire at peak load and on live
+events</td>
+<td>Partly (40%)</td>
+<td>$5.0M</td>
+</tr>
+<tr>
+<td>IVT filtering</td>
+<td>DSP’s fraud vendor removes spoofed CTV devices</td>
+<td>Credit if verified</td>
+<td>$4.6M</td>
+</tr>
+<tr>
+<td>Deal-ID mis-mapping</td>
+<td>DSP books delivery under the wrong deal</td>
+<td>Yes (95%)</td>
+<td>$3.8M</td>
+</tr>
+<tr>
+<td>Genuine billing error</td>
+<td>Unexplained under-reporting</td>
+<td>Mostly (60%)</td>
+<td>$3.5M</td>
+</tr>
+<tr>
+<td>Late / missing data</td>
+<td>Report days never arrive</td>
+<td>Yes (90%)</td>
+<td>$3.2M</td>
+</tr>
+<tr>
+<td>FX mismatch</td>
+<td>EUR/GBP partners convert at the wrong rate</td>
+<td>Yes (90%)</td>
+<td>$1.3M</td>
+</tr>
+<tr>
+<td>Timezone shift</td>
+<td>Partner reports in ET/PT; primetime crosses midnight UTC</td>
+<td>No: reporting fix only</td>
+<td>$0.9M</td>
+</tr>
+</tbody>
+</table>
+<p><em>Recovery rates are Billing Ops’ actual Jan–Jun 2026 outcomes on
+resolved cases.</em></p>
+<hr />
+<h2 id="today-vs.-tomorrow">4 · Today vs. tomorrow</h2>
+<p><strong>Today:</strong> download 40 partner portals’ files in 3
+formats → VLOOKUPs → email back and forth → guess the cause → write off
+what’s left.</p>
+<p><strong>Tomorrow:</strong> 1. Partner files are ingested and
+validated automatically (Lakeflow). 2. Every deal is reconciled daily
+and monthly against Apex logs. 3. A model explains <em>why</em> each gap
+happened, and a draft dispute is ready (AI). 4. Analysts work one
+prioritized queue and resolve in one click (Databricks App + Lakebase).
+5. Finance asks questions in plain English (Genie).</p>
+<hr />
+<h2 id="the-reconciliation-workbench-what-the-analyst-sees">5 · The
+Reconciliation Workbench (what the analyst sees)</h2>
+<ul>
+<li><strong>Close overview:</strong> September: Apex $146.8M vs
+DSP-reported $138.5M, <strong>$9.64M at risk</strong>, 287 cases open,
+recovered-to-date counter.</li>
+<li><strong>Triage queue:</strong> sorted by dollars at risk, with model
+root cause and confidence.</li>
+<li><strong>Case detail:</strong> e.g. <em>Mosaic Bid · Coastal Home
+Screen · Sports PMP, Sept: $423,608 gap (12.2%) vs a 7.5% threshold.
+Model: FX mismatch (99.99%).</em> Daily Apex-vs-DSP chart, evidence
+tiles, AI case summary, an editable dispute email, and Send / Resolve /
+Approve credit buttons.</li>
+<li><strong>Ask Genie:</strong> <em>“What’s our revenue at risk by
+partner team for September?”</em> → Pacific $5.26M, EMEA $1.74M, Central
+$1.49M, Atlantic $1.16M.</li>
+</ul>
+<hr />
+<h2 id="impact-on-your-kpis">6 · Impact on your KPIs</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>KPI (owner)</th>
+<th>Baseline (Q3 2026 data)</th>
+<th>Target</th>
+<th>Annual value*</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Revenue recovered from DSPs (CFO)</td>
+<td>Recoverable exposure $11.8M / quarter; team reaches ~60% of cases
+today*</td>
+<td>Pursue 100% of recoverable cases</td>
+<td><strong>≈ $19M / year</strong></td>
+</tr>
+<tr>
+<td>Dispute cycle time / DSO (CFO)</td>
+<td>20.7 days avg</td>
+<td>≤ 7 days</td>
+<td><strong>≈ $3.4M cash released</strong> (one-time; ~$250K/day × 14
+days faster)</td>
+</tr>
+<tr>
+<td>Analyst effort (Billing Ops)</td>
+<td>~360 cases/month × ~2.5 h each* ≈ 5.6 FTE</td>
+<td>~45 min per case (draft + evidence ready)</td>
+<td><strong>≈ 3.9 FTE redeployed</strong></td>
+</tr>
+<tr>
+<td>Wasted effort (Billing Ops)</td>
+<td>Every flagged case gets chased</td>
+<td>35% of queue triaged as no-recovery</td>
+<td>323 cases / quarter not chased</td>
+</tr>
+<tr>
+<td>Month-end close (CFO)</td>
+<td>~10 business days*</td>
+<td>~4 days</td>
+<td>Faster, auditable close</td>
+</tr>
+</tbody>
+</table>
+<p>* Assumptions to validate with Apex in discovery: current coverage
+(60%), manual effort per case (2.5 h), close length (10 days). All other
+figures are computed from the build’s data.</p>
+<hr />
+<h2 id="for-the-cfo">7 · For the CFO</h2>
+<ul>
+<li><strong>More cash, sooner:</strong> ≈ $19M a year of recoverable
+revenue that currently goes stale, plus faster collection on disputed
+invoices.</li>
+<li><strong>Audit-ready:</strong> every number traces from the partner
+file to the invoice (Unity Catalog lineage). Every analyst action is
+logged (who, what, when, model vs final cause).</li>
+<li><strong>Controls:</strong> revenue figures are visible to Finance
+only; partner managers see only their own DSPs. Enforced by the
+platform, not by the app.</li>
+<li><strong>A forecastable close:</strong> daily reconciliation means no
+month-end surprise.</li>
+</ul>
+<hr />
+<h2 id="for-the-director-of-billing-operations">8 · For the Director of
+Billing Operations</h2>
+<ul>
+<li>One queue, ranked by dollars, so the team works the right cases
+first.</li>
+<li>Root cause on first look 97% of the time, vs 47% with today’s rules
+of thumb. Analysts confirm or override, and that feedback retrains the
+model.</li>
+<li>Dispute emails drafted from the evidence: 250 drafts, every dollar
+figure checked against the source, rated 5/5 for accuracy and tone by an
+independent AI judge.</li>
+<li>Bad partner files caught on arrival (unknown deals, duplicates, bad
+dates, negative counts, wrong seat), not at month-end.</li>
+</ul>
+<hr />
+<h2 id="how-it-works-one-governed-platform">9 · How it works: one
+governed platform</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Need</th>
+<th>Databricks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ingest 3 partner formats + SSP logs, validate</td>
+<td><strong>Lakeflow</strong> declarative pipelines, Auto Loader,
+data-quality expectations</td>
+</tr>
+<tr>
+<td>Govern revenue data by partner and role</td>
+<td><strong>Unity Catalog</strong>: row filters, column masks, tags,
+lineage</td>
+</tr>
+<tr>
+<td>Explain the gap, draft the dispute</td>
+<td><strong>ML</strong> (MLflow, model registry) +
+<strong>GenAI</strong> (<code>ai_query</code>, Claude)</td>
+</tr>
+<tr>
+<td>Live case workflow</td>
+<td><strong>Lakebase</strong> (Postgres) synced with the lakehouse</td>
+</tr>
+<tr>
+<td>Plain-English questions</td>
+<td><strong>Genie</strong></td>
+</tr>
+<tr>
+<td>The analyst’s workbench</td>
+<td><strong>Databricks App</strong></td>
+</tr>
+</tbody>
+</table>
+<p>No data leaves the platform, and there’s no separate operational
+database or BI tool to stitch together.</p>
+<hr />
+<h2 id="proof-from-the-build">10 · Proof from the build</h2>
+<ul>
+<li>3.54M hourly log rows, 157K DSP report rows and 159K publisher rows
+ingested, covering 9 months, 40 DSPs, 150 CTV publishers and 800
+deals.</li>
+<li>1,718 bad partner rows quarantined, matching the defects injected
+into the partner files.</li>
+<li>Root-cause model: macro F1 <strong>0.97</strong> out-of-time vs
+<strong>0.47</strong> for the current playbook.</li>
+<li>GenAI: 100% of dollar figures grounded; 0 parse failures.</li>
+<li>Genie: benchmarked against reference SQL on finance questions (see
+<code>evidence/06_genie_benchmark.md</code>).</li>
+<li>App: end-to-end test from case open → dispute sent → resolved with
+credit, written to Lakebase and visible in Genie.</li>
+</ul>
+<hr />
+<h2 id="rollout-plan">11 · Rollout plan</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>When</th>
+<th>What</th>
+<th>Success measure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Days 0–30</td>
+<td>Pilot with the <strong>top 5 DSPs (49% of Q3 revenue at
+risk)</strong> on Apex’s real partner files; analysts run the workbench
+alongside spreadsheets</td>
+<td>Root-cause agreement with analysts ≥ 85%</td>
+</tr>
+<tr>
+<td>Days 31–60</td>
+<td>All 40 DSPs; publisher-side payout reconciliation; on-behalf-of-user
+access in the app</td>
+<td>Cycle time ≤ 10 days</td>
+</tr>
+<tr>
+<td>Days 61–90</td>
+<td>Retire spreadsheet process; model retraining on analyst-confirmed
+causes; close on daily reconciliation</td>
+<td>Cycle time ≤ 7 days, close ≤ 4 days</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="next-steps">12 · Next steps</h2>
+<ol type="1">
+<li><strong>Discovery session with Billing Ops</strong> to validate the
+baseline assumptions (coverage, effort per case, close length).</li>
+<li><strong>Data access:</strong> one month of Apex auction log extracts
++ DSP billing files for the top 5 DSPs.</li>
+<li><strong>Pilot sponsor:</strong> VP Revenue Accounting; success
+criteria agreed up front.</li>
+<li><strong>Executive readout</strong> at day 30 with recovered dollars
+and cycle-time results.</li>
+</ol>
+</body>
+</html>
