@@ -83,20 +83,19 @@ app/                              Streamlit Reconciliation Workbench (Databricks
 scripts/                          run_sql.py, capture_job_run.py, create_genie_space.py, genie_benchmark.py
 tests/app_smoke_test.py           Headless end-to-end app test (Streamlit AppTest against the live workspace)
 evidence/                         Text evidence of every stage running (see links above); evidence/sql has the queries
-deck/                             Business presentation
+deck/                             Business presentation (PDF + markdown source)
+RUNBOOK.md                        How to set up and run everything yourself
 ```
 
 ## How to run
 
+Step-by-step setup and run instructions, including one-time catalog, Lakebase, Genie and app setup and the values to
+change for a different workspace, are in **[RUNBOOK.md](RUNBOOK.md)**. Once set up, the whole build is one command:
+
 ```bash
 databricks bundle deploy -p <profile>
-databricks bundle run apex_recon_build -p <profile>        # generate → pipeline → train → score/draft → sync
-psql ... -f src/05_lakebase_schema.sql                     # once, against Lakebase (project apex-recon-lb, db databricks_postgres)
-python scripts/run_sql.py src/02_governance.sql
-python scripts/create_genie_space.py
-databricks bundle run recon_workbench -p <profile>        # start the app
-python scripts/genie_benchmark.py <space_id> evidence/06_genie_benchmark.md
-DATABRICKS_CONFIG_PROFILE=<profile> LAKEBASE_USER=<you> .venv/bin/python tests/app_smoke_test.py
+databricks bundle run apex_recon_build -p <profile>   # generate → pipeline → train → score/draft → governance → Lakebase → live status
+databricks bundle run recon_workbench -p <profile>    # start the app
 ```
 
 ## Design choices and limitations
