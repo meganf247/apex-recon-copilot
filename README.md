@@ -30,13 +30,13 @@ VP Data Engineering (technical).
 | Stage | Databricks capability | In this build | Evidence |
 |---|---|---|---|
 | **Ingest** | Lakeflow Spark Declarative Pipelines + Auto Loader | Streams 273 SSP log files (JSON.gz, hourly UTC), 351 DSP billing files in **3 different partner layouts** (incl. EUR/GBP), 1,336 publisher ad server exports and the dispute history from a UC Volume into bronze → silver → gold. **6 data-quality expectations** quarantine bad partner rows with the reasons recorded. | [`evidence/02_pipeline_evidence.md`](evidence/02_pipeline_evidence.md), [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) |
-| **Govern** | Unity Catalog | Medallion schemas + volume; **row filter** (partner managers see only their team's DSPs) and **column masks** (USD amounts for Finance only), both driven by an access table; governed tags; comments on every table; automatic lineage from raw files to the work queue. | [`evidence/05_governance_demo.md`](evidence/05_governance_demo.md), [`evidence/05_governance_task_run.md`](evidence/05_governance_task_run.md), [`evidence/09_lineage.md`](evidence/09_lineage.md) |
+| **Govern** | Unity Catalog | Medallion schemas + volume; **row filter** (partner managers see only their team's DSPs) and **column masks** (USD amounts for Finance only), both driven by an access table; governed tags; comments on every table; automatic lineage from raw files to the work queue. | [`evidence/05_governance_demo.md`](evidence/05_governance_demo.md), [`evidence/09_lineage.md`](evidence/09_lineage.md) |
 | **Intelligence (ML)** | MLflow + UC Model Registry | Gradient-boosted classifier predicts the **root cause** of each deal-month discrepancy from 24 engineered features (best-fit timezone shift, sibling-deal offset, revenue-vs-impression divergence, missing days, SSAI vendor, live share…). Registered as `apex_recon.ml.discrepancy_root_cause@champion`. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) (task `train_root_cause_model`) |
 | **Intelligence (GenAI)** | `ai_query` + Foundation Model APIs | Claude Sonnet 4.6 drafts a case summary and a partner-ready dispute email for the top 250 cases, grounded in a JSON evidence pack. The prompt follows each contract's billing basis. Checked automatically: dollar figures must come from the evidence, the ask must match the billing basis, and an LLM judge (GPT-5.4 mini) scores accuracy, tone and actionability. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) (task `score_and_draft_disputes`) |
-| **Operational serving** | Lakebase (Postgres, autoscaling) | Gold case queue **synced** into Lakebase (`serving.case_workbench`); the app **writes** case state, an audit trail and credit approvals to `recon.*`; a job snapshots them back into UC (`ops.dispute_case_status`) so Genie and Finance see live status. | [`evidence/07_app_e2e_test.md`](evidence/07_app_e2e_test.md), [`evidence/08_sync_case_status_run.md`](evidence/08_sync_case_status_run.md) |
+| **Operational serving** | Lakebase (Postgres, autoscaling) + Lakebase UC catalog | Gold case queue **synced** into Lakebase (`serving.case_workbench`); the app **writes** case state, an audit trail and credit approvals to `recon.*`. The Lakebase database is registered in Unity Catalog as **`apex_recon_ops`**, so `ops.dispute_case_status` reads those tables **live**: Genie and Finance see an analyst's action the moment it's committed, with no copy job. | [`evidence/07_app_e2e_test.md`](evidence/07_app_e2e_test.md), [`evidence/08_lakebase_live_status.md`](evidence/08_lakebase_live_status.md) |
 | **Natural language** | Genie space | "Apex Exchange · CTV Revenue Reconciliation" over gold, case status and dimensions, with business definitions, sample questions and certified example SQL. Benchmarked against reference SQL. | [`evidence/06_genie_benchmark.md`](evidence/06_genie_benchmark.md) |
 | **Surface** | Databricks App (Streamlit) | **Reconciliation Workbench**: Close overview → Triage queue → Case detail (evidence, AI root cause, editable dispute email, send / resolve / approve credit) → Ask Genie. | [`evidence/07_app_e2e_test.md`](evidence/07_app_e2e_test.md) |
-| **Orchestrate** | Lakeflow Jobs + Databricks Asset Bundle | One job (`apex-recon-build`, 7 tasks): generate → pipeline → train → score & draft → apply governance + refresh Lakebase queue → sync case status. The pipeline, job and app are all deployed from `databricks.yml`. In the captured full run, `apply_governance` failed on a MERGE syntax error; after the fix it was re-run alone and succeeded. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md), [`evidence/05_governance_task_run.md`](evidence/05_governance_task_run.md) |
+| **Orchestrate** | Lakeflow Jobs + Databricks Asset Bundle | One job (`apex-recon-build`, 7 tasks): generate → pipeline → train → score & draft → apply governance, refresh the Lakebase queue, publish the live case-status view. The pipeline, job and app are all deployed from `databricks.yml`. | [`evidence/01_build_job_run.md`](evidence/01_build_job_run.md) |
 
 ```
 Synthetic generator ─► UC Volume /Volumes/apex_recon/landing/raw
@@ -49,7 +49,7 @@ gold.recon_deal_daily ─► gold.recon_deal_month ─► gold.recon_partner_mon
         └─► ml.discrepancy_features ─► MLflow model @champion ─► ml.discrepancy_predictions
                                                       └─► gold.dispute_queue (row filter + masks) ─► ai_query ─► gold.dispute_drafts
                                                                          └─► gold.case_workbench ══sync══► Lakebase serving.case_workbench
-Genie space ◄── gold.* + ops.dispute_case_status ◄══ snapshot ══ Lakebase recon.dispute_cases / case_events / credit_approvals
+Genie space ◄── gold.* + ops.dispute_case_status ◄── live via UC catalog apex_recon_ops ── Lakebase recon.dispute_cases / case_events / credit_approvals
 Databricks App ◄── UC (SQL warehouse) + Lakebase (read queue, write cases) + Genie (Conversation API)
 ```
 
@@ -61,7 +61,7 @@ Databricks App ◄── UC (SQL warehouse) + Lakebase (read queue, write cases)
 | Data quality | 1,725 DSP rows quarantined, matching the injected defects: 605 unknown deal IDs, 449 duplicates, 324 bad dates, 321 negative impressions, 32 seat mismatches |
 | Reconciliation | September close: Apex $146.8M vs DSP-reported $137.5M; **$10.26M revenue at risk**; 276 deals need review |
 | Root-cause model | Holdout on Jan–Jun analyst-labelled cases (labels ~11% noisy): **macro F1 0.84** vs **0.43** for the analysts' playbook rules. Out-of-time on Jul–Sep against the planted true causes (2,009 deal-months): **macro F1 0.94, accuracy 95%** vs 0.48 / 69% for the playbook. Weakest classes: missing data (precision 0.79) and IVT (F1 0.90). |
-| GenAI drafts | 250 drafts, 0 parse failures, **100% of dollar figures grounded** in evidence, **98.8% consistent with the contract's billing basis** (3 drafts flagged for an analyst to fix), LLM judge 4.9 / 5.0 / 4.97 for accuracy, tone and actionability (n=30) |
+| GenAI drafts | 250 drafts, 0 parse failures, **100% of dollar figures grounded** in evidence, **99.2% consistent with the contract's billing basis** (2 drafts flagged for an analyst to fix before sending), LLM judge 4.67 / 5.0 / 4.97 for accuracy, tone and actionability (n=30). LLM output varies slightly from run to run; these figures are from the captured run. |
 | Q3 work queue | 955 cases across 38 DSPs, $27.4M at risk; **$14.9M recoverable** at Billing Ops' historical recovery rates; $6.2M (273 cases) flagged as timezone / IVT, where chasing won't recover money |
 | Genie | **12/12** finance questions correct against reference SQL. The first run scored 11/12: on a multi-month "how many DSPs" question Genie returned one row per DSP. Adding a certified example query plus a counting instruction fixed it. |
 | App | Headless end-to-end test PASS: all pages render; a case goes open → dispute sent → resolved with credit, and the rows land in Lakebase |
@@ -78,7 +78,7 @@ src/03_train_root_cause.py        Features → baseline vs gradient boosting →
 src/04_score_and_draft.py         Batch scoring, work queue, ai_query drafts, draft checks, serving table
 src/05_lakebase_schema.sql        Lakebase operational schema (cases, events, credit approvals)
 src/06_app_grants*.sql            UC + Lakebase grants for the app service principal
-src/07_sync_case_status.py        Lakebase → UC snapshot + ops.dispute_case_status view
+src/07_case_status_view.sql       Live ops.dispute_case_status view over the Lakebase UC catalog (apex_recon_ops)
 app/                              Streamlit Reconciliation Workbench (Databricks App)
 scripts/                          run_sql.py, capture_job_run.py, create_genie_space.py, genie_benchmark.py
 tests/app_smoke_test.py           Headless end-to-end app test (Streamlit AppTest against the live workspace)
@@ -91,7 +91,7 @@ deck/                             Business presentation
 ```bash
 databricks bundle deploy -p <profile>
 databricks bundle run apex_recon_build -p <profile>        # generate → pipeline → train → score/draft → sync
-psql ... -f src/05_lakebase_schema.sql                     # once, against the Lakebase apex_ops database
+psql ... -f src/05_lakebase_schema.sql                     # once, against Lakebase (project apex-recon-lb, db databricks_postgres)
 python scripts/run_sql.py src/02_governance.sql
 python scripts/create_genie_space.py
 databricks bundle run recon_workbench -p <profile>        # start the app
@@ -110,8 +110,8 @@ DATABRICKS_CONFIG_PROFILE=<profile> LAKEBASE_USER=<you> .venv/bin/python tests/a
 - **Governance uses an access table instead of account groups.** The FE workspace doesn't allow creating account-level
   groups, so the row filter and masks read `ops.recon_access` keyed on `current_user()`. In production this would be
   `is_account_group_member()` on IdP-synced groups. The policy functions stay the same.
-- **Lakebase → UC.** Lakebase's change-data-feed-to-UC config (Beta) was created, but no tables had appeared yet when
-  this build ran, so `07_sync_case_status.py` snapshots the case tables into UC as part of the job.
+- **Lakebase → UC.** The Lakebase database is registered as the UC catalog `apex_recon_ops`. An earlier version (in a workspace
+  without CREATE CATALOG) snapshotted the case tables into UC with a job. Reading live through the catalog replaced that.
 - **The app runs as its service principal** (granted Finance scope). The next step is on-behalf-of-user auth, so the
   UC row filter applies to each signed-in partner manager in the app too.
 - `databricks-claude-sonnet-5-5` isn't enabled for `ai_query` batch inference in this workspace, so drafts use

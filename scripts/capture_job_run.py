@@ -2,7 +2,7 @@
 and, for pipeline tasks, the update state. Row counts and expectation results for pipeline updates come from the
 pipeline event log via SQL (see evidence/sql/02_pipeline_evidence.sql), because the CLI event listing omits metrics.
 
-Usage: python scripts/capture_job_run.py <run_id> evidence/<file>.md [--profile megan-fevm]
+Usage: python scripts/capture_job_run.py <run_id> evidence/<file>.md [--profile megan-fevm2]
 """
 import argparse
 import datetime as dt
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("run_id")
     p.add_argument("out")
-    p.add_argument("--profile", default="megan-fevm")
+    p.add_argument("--profile", default="megan-fevm2")
     a = p.parse_args()
     run = cli(a.profile, "jobs", "get-run", a.run_id)
     md = [f"# Job run evidence: {run['run_name']}", "",

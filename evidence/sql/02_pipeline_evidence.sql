@@ -2,19 +2,19 @@
 SELECT origin.flow_name AS dataset,
        max(details:flow_progress.metrics.num_output_rows::BIGINT) AS output_rows,
        max(details:flow_progress.data_quality.dropped_records::BIGINT) AS dropped_by_expectations
-FROM event_log('5d44a671-5813-463d-903e-33ca04bb3376')
+FROM event_log('7e5bc896-605c-44f6-a2e3-039922e893a9')
 WHERE event_type = 'flow_progress' AND details:flow_progress.status = 'COMPLETED'
-  AND origin.update_id = (SELECT origin.update_id FROM event_log('5d44a671-5813-463d-903e-33ca04bb3376')
+  AND origin.update_id = (SELECT origin.update_id FROM event_log('7e5bc896-605c-44f6-a2e3-039922e893a9')
                           WHERE event_type = 'create_update' ORDER BY timestamp DESC LIMIT 1)
 GROUP BY 1 ORDER BY 1;
 
 SELECT origin.flow_name AS dataset, e.name AS expectation,
        sum(e.passed_records) AS passed_records, sum(e.failed_records) AS failed_records
-FROM event_log('5d44a671-5813-463d-903e-33ca04bb3376'),
+FROM event_log('7e5bc896-605c-44f6-a2e3-039922e893a9'),
      LATERAL explode(from_json(details:flow_progress.data_quality.expectations,
                      'array<struct<name:string,dataset:string,passed_records:bigint,failed_records:bigint>>')) AS t(e)
 WHERE event_type = 'flow_progress' AND details:flow_progress.data_quality.expectations IS NOT NULL
-  AND origin.update_id = (SELECT origin.update_id FROM event_log('5d44a671-5813-463d-903e-33ca04bb3376')
+  AND origin.update_id = (SELECT origin.update_id FROM event_log('7e5bc896-605c-44f6-a2e3-039922e893a9')
                           WHERE event_type = 'create_update' ORDER BY timestamp DESC LIMIT 1)
 GROUP BY 1, 2 ORDER BY 1, 2;
 

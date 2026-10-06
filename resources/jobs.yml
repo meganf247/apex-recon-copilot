@@ -34,18 +34,18 @@ resources:
           depends_on:
             - task_key: score_and_draft_disputes
           sql_task:
-            warehouse_id: 75019f3de4c19846
+            warehouse_id: 93d767746e247a90
             file:
               path: ../src/02_governance.sql
         - task_key: refresh_lakebase_queue
           depends_on:
             - task_key: score_and_draft_disputes
           pipeline_task:
-            pipeline_id: 248ca05a-ee23-46ed-a2c0-0e442bd0434b  # managed sync: gold.case_workbench -> Lakebase serving.case_workbench
-        - task_key: sync_case_status_to_uc
+            pipeline_id: e8b6f9fb-9b3b-4a4d-a55b-3372393e5240  # managed sync: gold.case_workbench -> Lakebase serving.case_workbench
+        - task_key: publish_case_status_view
           depends_on:
-            - task_key: refresh_lakebase_queue
-          notebook_task:
-            notebook_path: ../src/07_sync_case_status.py
-            base_parameters:
-              catalog: ${var.catalog}
+            - task_key: score_and_draft_disputes
+          sql_task:
+            warehouse_id: 93d767746e247a90
+            file:
+              path: ../src/07_case_status_view.sql

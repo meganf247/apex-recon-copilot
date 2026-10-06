@@ -1,7 +1,7 @@
 """Benchmark the Genie space: ask each business question through the Conversation API, capture the SQL Genie wrote
 and its answer, and compare against an independently written reference query. Writes markdown evidence.
 
-Usage: python scripts/genie_benchmark.py <space_id> evidence/06_genie_benchmark.md [--profile megan-fevm]
+Usage: python scripts/genie_benchmark.py <space_id> evidence/06_genie_benchmark.md [--profile megan-fevm2]
 """
 import argparse
 import json
@@ -82,8 +82,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("space_id")
     p.add_argument("out")
-    p.add_argument("--profile", default="megan-fevm")
-    p.add_argument("--warehouse", default="75019f3de4c19846")
+    p.add_argument("--profile", default="megan-fevm2")
+    p.add_argument("--warehouse", default="93d767746e247a90")
     a = p.parse_args()
     md, passed = [f"# Genie benchmark: space `{a.space_id}`", ""], 0
     for i, (q, ref_sql) in enumerate(BENCH, 1):

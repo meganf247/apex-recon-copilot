@@ -105,7 +105,7 @@ Three systems count the same impression: **Apex's auction logs**, the **DSP's bi
 - Root cause right on first look 95% of the time, vs 69% with today's rules of thumb, even on mixed-cause cases.
   Analysts confirm or override, and that feedback retrains the model.
 - Dispute emails drafted from the evidence and the contract: 250 drafts, every dollar figure checked against the source,
-  each ask checked against the contract's billing basis (3 flagged for review), rated 4.9/5 for accuracy by an independent AI judge.
+  each ask checked against the contract's billing basis (any mismatch is flagged for review), rated 4.7/5 for accuracy and 5/5 for tone by an independent AI judge.
 - Bad partner files caught on arrival (unknown deals, duplicates, bad dates, negative counts, wrong seat), not at month-end.
 
 ---
@@ -130,7 +130,7 @@ No data leaves the platform, and there's no separate operational database or BI 
 - 3.54M hourly log rows, 157K DSP report rows and 159K publisher rows ingested, covering 9 months, 40 DSPs, 150 CTV publishers and 800 deals.
 - 1,725 bad partner rows quarantined, matching the defects injected into the partner files.
 - Root-cause model: macro F1 **0.94** out-of-time vs **0.48** for the current playbook (0.84 vs 0.43 against noisy analyst labels).
-- GenAI: 100% of dollar figures grounded; 98.8% contract-consistent; 0 parse failures.
+- GenAI: 100% of dollar figures grounded; 99.2% contract-consistent (mismatches flagged for review); 0 parse failures.
 - Genie: **12/12** finance questions answered correctly against independently written reference SQL.
 - App: end-to-end test from case open → dispute sent → resolved with credit, written to Lakebase and visible in Genie.
 

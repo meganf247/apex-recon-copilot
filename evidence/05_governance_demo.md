@@ -155,3 +155,4 @@ ORDER BY target_table_full_name, source_table_full_name
 | apex_recon.silver.dim_dsps | apex_recon.silver.dsp_reports_quarantine |
 | apex_recon.silver.fx_rates | apex_recon.silver.dsp_reports_quarantine |
 | apex_recon.bronze.publisher_adserver_reports | apex_recon.silver.publisher_daily_reports |
+| apex_recon.bronze.ssp_auction_logs | apex_recon.silver.ssp_hourly |

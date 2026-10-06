@@ -2,7 +2,7 @@
 renders every page, then works the top September case (open -> send dispute -> resolve with credit) and verifies
 the writes landed in Lakebase. Prints a text log used as execution evidence.
 
-Run: DATABRICKS_CONFIG_PROFILE=megan-fevm LAKEBASE_USER=<you> .venv/bin/python tests/app_smoke_test.py
+Run: DATABRICKS_CONFIG_PROFILE=megan-fevm2 LAKEBASE_USER=<you> .venv/bin/python tests/app_smoke_test.py
 """
 import os
 import sys
@@ -10,9 +10,9 @@ import time
 
 from streamlit.testing.v1 import AppTest
 
-os.environ.setdefault("DATABRICKS_WAREHOUSE_ID", "75019f3de4c19846")
-os.environ.setdefault("GENIE_SPACE_ID", "01f1c0d3f43414638f30fdd1ec386a32")
-os.environ.setdefault("LAKEBASE_HOST", "ep-crimson-term-d2b11cr0.database.us-east-1.cloud.databricks.com")
+os.environ.setdefault("DATABRICKS_WAREHOUSE_ID", "93d767746e247a90")
+os.environ.setdefault("GENIE_SPACE_ID", "01f1c1a695ce1f47baa2f07ef9f73663")
+os.environ.setdefault("LAKEBASE_HOST", "ep-cold-cell-d2f24olw.database.us-east-1.cloud.databricks.com")
 APP = os.path.join(os.path.dirname(__file__), "..", "app", "app.py")
 
 

@@ -1,6 +1,6 @@
 """Run a .sql file (statements separated by ';') on a Databricks SQL warehouse and print results.
 
-Usage: python scripts/run_sql.py <file.sql> [--profile megan-fevm] [--warehouse <id>]
+Usage: python scripts/run_sql.py <file.sql> [--profile megan-fevm2] [--warehouse <id>]
 Output is plain text so it can be captured into evidence/.
 """
 import argparse
@@ -50,8 +50,8 @@ def fmt(resp):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("file")
-    p.add_argument("--profile", default="megan-fevm")
-    p.add_argument("--warehouse", default="75019f3de4c19846")
+    p.add_argument("--profile", default="megan-fevm2")
+    p.add_argument("--warehouse", default="93d767746e247a90")
     a = p.parse_args()
     failed = False
     for stmt in split_statements(open(a.file).read()):

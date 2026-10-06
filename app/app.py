@@ -21,9 +21,9 @@ st.set_page_config(page_title="Apex Exchange · Reconciliation Workbench", layou
 CATALOG = os.getenv("APEX_CATALOG", "apex_recon")
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID")
 GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID")
-PG_ENDPOINT = os.getenv("LAKEBASE_ENDPOINT", "projects/apex-recon/branches/production/endpoints/primary")
+PG_ENDPOINT = os.getenv("LAKEBASE_ENDPOINT", "projects/apex-recon-lb/branches/production/endpoints/primary")
 PG_HOST = os.getenv("LAKEBASE_HOST")
-PG_DB = os.getenv("LAKEBASE_DATABASE", "apex_ops")
+PG_DB = os.getenv("LAKEBASE_DATABASE", "databricks_postgres")
 
 cfg = Config()
 w = WorkspaceClient()

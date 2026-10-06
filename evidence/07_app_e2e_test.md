@@ -1,8 +1,8 @@
 # Reconciliation Workbench: end-to-end app test
 
-Headless Streamlit AppTest run of `app/app.py` against the live workspace (UC SQL warehouse, Lakebase `apex_ops`, Genie space). Command: `DATABRICKS_CONFIG_PROFILE=megan-fevm LAKEBASE_USER=<user> .venv/bin/python tests/app_smoke_test.py`
+Headless Streamlit AppTest run of `app/app.py` against the live workspace (UC SQL warehouse, Lakebase project `apex-recon-lb`, Genie space). Command: `DATABRICKS_CONFIG_PROFILE=megan-fevm2 LAKEBASE_USER=<user> .venv/bin/python tests/app_smoke_test.py`
 
-Run at: 2026-10-05 17:26 UTC
+Run at: 2026-10-06 17:01 UTC
 
 ```
 [ OK ] Close overview renders
@@ -30,7 +30,7 @@ Lakebase recon.credit_approvals:
  amount_usd                          approved_by        reason
  215005.82 billing.analyst@apexexchange.example IVT_FILTERING
 [ OK ] Ask Genie answers
-         Genie: ['_You want to see the total revenue at risk for each partner team for the September 2026 billing month._\n\nFor the **September 2026 close**, total revenue at risk is highest for **Pacific** at **$5,279,803**, followed by **Central** at **$1,957,712**, **Atlantic** at **$1,624,705**, and **EMEA** at **$1,399,788**. Across the 4 partner teams shown, **Pacific** has the largest exposure and **EMEA** the smallest.', '### Apex Exchange\n**CTV Reconciliation Workbench**']
+         Genie: ['_You want to see the total revenue at risk for each partner team for the September 2026 close._\n\nFor the **September 2026 close**, total revenue at risk by partner team is:\n- **Pacific:** **$5,279,803**\n- **Central:** **$1,957,712**\n- **Atlantic:** **$1,624,705**\n- **EMEA:** **$1,399,788**\n\nAcross all 4 teams shown, **Pacific** has the highest revenue at risk, at more than **2.6x** Central, the next highest team.', '### Apex Exchange\n**CTV Reconciliation Workbench**']
 
 RESULT: PASS
 ```

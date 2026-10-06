@@ -7,10 +7,10 @@ resources:
       resources:
         - name: sql-warehouse
           sql_warehouse:
-            id: 75019f3de4c19846
+            id: 93d767746e247a90
             permission: CAN_USE
         - name: genie-space
           genie_space:
             name: apex-recon-genie
-            space_id: 01f1c0d3f43414638f30fdd1ec386a32
+            space_id: 01f1c1a695ce1f47baa2f07ef9f73663
             permission: CAN_RUN

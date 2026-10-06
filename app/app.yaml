@@ -7,8 +7,8 @@ env:
   - name: GENIE_SPACE_ID
     valueFrom: genie-space
   - name: LAKEBASE_ENDPOINT
-    value: projects/apex-recon/branches/production/endpoints/primary
+    value: projects/apex-recon-lb/branches/production/endpoints/primary
   - name: LAKEBASE_HOST
-    value: ep-crimson-term-d2b11cr0.database.us-east-1.cloud.databricks.com
+    value: ep-cold-cell-d2f24olw.database.us-east-1.cloud.databricks.com
   - name: LAKEBASE_DATABASE
-    value: apex_ops
+    value: databricks_postgres

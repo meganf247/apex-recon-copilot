@@ -1,7 +1,7 @@
 """Create (or replace) the Apex Exchange reconciliation Genie space: tables, instructions, sample questions and
 certified example SQL. Prints the space ID.
 
-Usage: python scripts/create_genie_space.py [--profile megan-fevm] [--warehouse <id>] [--space-id <existing id>]
+Usage: python scripts/create_genie_space.py [--profile megan-fevm2] [--warehouse <id>] [--space-id <existing id>]
 """
 import argparse
 import json
@@ -82,8 +82,8 @@ def serialized():
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--profile", default="megan-fevm")
-    p.add_argument("--warehouse", default="75019f3de4c19846")
+    p.add_argument("--profile", default="megan-fevm2")
+    p.add_argument("--warehouse", default="93d767746e247a90")
     p.add_argument("--space-id")
     a = p.parse_args()
     body = {"title": "Apex Exchange · CTV Revenue Reconciliation",

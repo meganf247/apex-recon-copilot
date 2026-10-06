@@ -276,8 +276,9 @@ rules of thumb, even on mixed-cause cases. Analysts confirm or override,
 and that feedback retrains the model.</li>
 <li>Dispute emails drafted from the evidence and the contract: 250
 drafts, every dollar figure checked against the source, each ask checked
-against the contract’s billing basis (3 flagged for review), rated 4.9/5
-for accuracy by an independent AI judge.</li>
+against the contract’s billing basis (any mismatch is flagged for
+review), rated 4.7/5 for accuracy and 5/5 for tone by an independent AI
+judge.</li>
 <li>Bad partner files caught on arrival (unknown deals, duplicates, bad
 dates, negative counts, wrong seat), not at month-end.</li>
 </ul>
@@ -338,8 +339,8 @@ into the partner files.</li>
 <li>Root-cause model: macro F1 <strong>0.94</strong> out-of-time vs
 <strong>0.48</strong> for the current playbook (0.84 vs 0.43 against
 noisy analyst labels).</li>
-<li>GenAI: 100% of dollar figures grounded; 98.8% contract-consistent; 0
-parse failures.</li>
+<li>GenAI: 100% of dollar figures grounded; 99.2% contract-consistent
+(mismatches flagged for review); 0 parse failures.</li>
 <li>Genie: <strong>12/12</strong> finance questions answered correctly
 against independently written reference SQL.</li>
 <li>App: end-to-end test from case open → dispute sent → resolved with

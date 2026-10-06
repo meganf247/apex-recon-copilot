@@ -14,4 +14,4 @@ targets:
     mode: development
     default: true
     workspace:
-      host: https://fevm-serverless-3dmees.cloud.databricks.com
+      host: https://fevm-megant-fevm.cloud.databricks.com
