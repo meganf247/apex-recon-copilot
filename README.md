@@ -84,13 +84,14 @@ scripts/                          run_sql.py, capture_job_run.py, create_genie_s
 tests/app_smoke_test.py           Headless end-to-end app test (Streamlit AppTest against the live workspace)
 evidence/                         Text evidence of every stage running (see links above); evidence/sql has the queries
 deck/                             Business presentation (PDF + markdown source)
-RUNBOOK.md                        How to set up and run everything yourself
+RUNBOOK.md                        How to run and demo everything in the workspace
 ```
 
 ## How to run
 
-Step-by-step setup and run instructions, including one-time catalog, Lakebase, Genie and app setup and the values to
-change for a different workspace, are in **[RUNBOOK.md](RUNBOOK.md)**. Once set up, the whole build is one command:
+**[RUNBOOK.md](RUNBOOK.md)** covers running and demoing the build in its workspace (`fevm-megant-fevm`): where
+everything lives, rerunning the job, the app walkthrough, where to show each component, refreshing evidence and
+troubleshooting. The whole build is one command:
 
 ```bash
 databricks bundle deploy -p <profile>
