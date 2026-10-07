@@ -15,3 +15,5 @@ targets:
     default: true
     workspace:
       host: https://fevm-megant-fevm.cloud.databricks.com
+      # Code goes to a visible folder in your home directory; deployment state stays under .bundle.
+      file_path: /Workspace/Users/${workspace.current_user.userName}/apex-recon-copilot

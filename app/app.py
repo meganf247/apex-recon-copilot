@@ -29,8 +29,7 @@ cfg = Config()
 w = WorkspaceClient()
 USER = st.context.headers.get("X-Forwarded-Email") or "billing.analyst@apexexchange.example"
 RESOLUTIONS = ["RECOVERED", "CREDIT_ISSUED", "NO_ADJUSTMENT", "WRITTEN_OFF"]
-CAUSES = ["WITHIN_TOLERANCE", "TIMEZONE_SHIFT", "IVT_FILTERING", "SSAI_BEACON_LOSS", "DEAL_ID_MISMAPPING",
-          "FX_MISMATCH", "LATE_OR_MISSING_DATA", "GENUINE_BILLING_ERROR"]
+CAUSES = ["WITHIN_TOLERANCE", "TIMEZONE_SHIFT", "IVT_FILTERING", "LATE_OR_MISSING_DATA", "GENUINE_BILLING_ERROR"]
 
 
 # ---------------- data access ----------------
@@ -127,7 +126,7 @@ def overview():
             tooltip=["predicted_root_cause", "cases", "usd"]), width="stretch")
     st.subheader("Trend")
     trend = uc(f"""SELECT billing_month, round(sum(revenue_at_risk_usd)) AS revenue_at_risk_usd,
-                          round(100 * sum(revenue_gap_usd) / sum(ssp_revenue_usd), 2) AS net_gap_pct
+                          round(100 * (sum(ssp_revenue_usd) - sum(dsp_revenue_usd)) / sum(ssp_revenue_usd), 2) AS net_gap_pct
                    FROM {CATALOG}.gold.recon_partner_month GROUP BY 1 ORDER BY 1""")
     st.altair_chart(alt.Chart(trend).mark_line(point=True).encode(x="billing_month:N", y="revenue_at_risk_usd:Q"),
                     width="stretch")
@@ -178,20 +177,21 @@ def case_detail():
     k[4].metric("Model root cause", row.predicted_root_cause.replace("_", " ").title(), f"{row.confidence:.0%} confidence",
                 delta_color="off")
 
-    daily = uc(f"""SELECT recon_date, ssp_impressions, dsp_impressions, impression_gap_pct, dsp_row_missing
-                   FROM {CATALOG}.gold.recon_deal_daily
-                   WHERE deal_id = '{row.deal_id}' AND billing_month = '{row.billing_month}' ORDER BY recon_date""")
-    long = daily.melt("recon_date", ["ssp_impressions", "dsp_impressions"], "source", "impressions")
+    daily = uc(f"""SELECT s.report_date, s.ssp_impressions, d.dsp_impressions
+                   FROM {CATALOG}.silver.ssp_daily s
+                   LEFT JOIN {CATALOG}.silver.dsp_daily d USING (deal_id, report_date)
+                   WHERE s.deal_id = '{row.deal_id}' AND date_format(s.report_date, 'yyyy-MM') = '{row.billing_month}'
+                   ORDER BY s.report_date""")
+    long = daily.melt("report_date", ["ssp_impressions", "dsp_impressions"], "source", "impressions")
     st.altair_chart(alt.Chart(long).mark_line(point=True).encode(
-        x=alt.X("recon_date:T", title=None), y="impressions:Q",
+        x=alt.X("report_date:T", title=None), y="impressions:Q",
         color=alt.Color("source:N", scale=alt.Scale(range=["#2b6cb0", "#d1495b"]))).properties(height=260),
         width="stretch")
     ev = st.columns(4)
     ev[0].metric("Days missing in DSP report", int(row.days_missing_in_dsp_report))
-    ev[1].metric("Best-fit timezone shift", f"{int(row.best_shift_hours)} h", f"gap shrinks {row.tz_shift_gain:.1f} pts",
-                 delta_color="off")
-    ev[2].metric("Sibling-deal offset match", f"{row.sibling_offset_match:.0%}")
-    ev[3].metric("Revenue vs impression gap", f"{row.rev_minus_imp_gap_pct:+.1f} pts")
+    ev[1].metric("Days with a big gap", f"{row.large_gap_day_share:.0%}")
+    ev[2].metric("Day-to-day swing", f"{row.daily_gap_swing:+.2f}", "negative = gaps flip-flop (timezone)", delta_color="off")
+    ev[3].metric("Publisher IVT risk", f"{row.ivt_risk_score:.2f}")
 
     st.subheader("AI case summary")
     st.info(row.case_summary or "No draft for this case.")

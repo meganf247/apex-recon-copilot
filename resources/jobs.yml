@@ -2,7 +2,7 @@ resources:
   jobs:
     apex_recon_build:
       name: apex-recon-build
-      description: End-to-end build for the Apex Exchange CTV Revenue Reconciliation Copilot.
+      description: Apex Exchange CTV revenue reconciliation, end to end (4 steps).
       tasks:
         - task_key: generate_data
           notebook_task:
@@ -10,42 +10,23 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               seed: "42"
-        - task_key: ingest_and_reconcile
+        - task_key: pipeline
           depends_on:
             - task_key: generate_data
           pipeline_task:
             pipeline_id: ${resources.pipelines.apex_recon_pipeline.id}
             full_refresh: true
-        - task_key: train_root_cause_model
+        - task_key: ml_and_disputes
           depends_on:
-            - task_key: ingest_and_reconcile
+            - task_key: pipeline
           notebook_task:
-            notebook_path: ../src/03_train_root_cause.py
+            notebook_path: ../src/03_ml_and_disputes.py
             base_parameters:
               catalog: ${var.catalog}
-        - task_key: score_and_draft_disputes
+        - task_key: publish
           depends_on:
-            - task_key: train_root_cause_model
-          notebook_task:
-            notebook_path: ../src/04_score_and_draft.py
-            base_parameters:
-              catalog: ${var.catalog}
-        - task_key: apply_governance
-          depends_on:
-            - task_key: score_and_draft_disputes
+            - task_key: ml_and_disputes
           sql_task:
             warehouse_id: 93d767746e247a90
             file:
-              path: ../src/02_governance.sql
-        - task_key: refresh_lakebase_queue
-          depends_on:
-            - task_key: score_and_draft_disputes
-          pipeline_task:
-            pipeline_id: e8b6f9fb-9b3b-4a4d-a55b-3372393e5240  # managed sync: gold.case_workbench -> Lakebase serving.case_workbench
-        - task_key: publish_case_status_view
-          depends_on:
-            - task_key: score_and_draft_disputes
-          sql_task:
-            warehouse_id: 93d767746e247a90
-            file:
-              path: ../src/07_case_status_view.sql
+              path: ../src/04_publish.sql

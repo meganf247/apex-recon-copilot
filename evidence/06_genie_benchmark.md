@@ -5,8 +5,8 @@
 ## 1. What was the total revenue at risk across all DSPs for the September 2026 close?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `1.0262008E7`  
-- Genie first row: `['1.0262008E7']`  
+- Expected (reference SQL): `8918862.0`  
+- Genie first row: `['8918862.0']`  
 - **PASS**
 
 Genie SQL:
@@ -20,56 +20,35 @@ Reference SQL:
 SELECT round(sum(revenue_at_risk_usd)) FROM apex_recon.gold.recon_partner_month WHERE billing_month = '2026-09'
 ```
 
-Genie text: For the September 2026 close, the **total revenue at risk across all DSPs was $10,262,008**. Based on the single result returned for billing month **2026-09**, the full amount captured by this query is **$10,262,008**.
+Genie text: For the September 2026 close, total revenue at risk across all DSPs was **$8,918,862**. Based on the single result returned for billing month **2026-09**, the full amount of exposure shown is **$8,918,862**.
 
 ## 2. Which DSP had the most revenue at risk in September 2026?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `Lattice Media`  
-- Genie first row: `['Lattice Media', 'Pacific', '2090964.0', '5.4', '7.5', 'false', '56']`  
+- Expected (reference SQL): `Lumen Programmatic`  
+- Genie first row: `['Lumen Programmatic', 'Central', '763255.0']`  
 - **PASS**
 
 Genie SQL:
 ```sql
-WITH ranked AS (
-  SELECT
-    `dsp_name`,
-    `partner_team`,
-    ROUND(`revenue_at_risk_usd`) AS `revenue_at_risk_usd`,
-    ROUND(`revenue_gap_pct`, 1) AS `revenue_gap_pct`,
-    `discrepancy_threshold_pct`,
-    `over_threshold`,
-    `deals_needing_review`,
-    RANK() OVER (ORDER BY `revenue_at_risk_usd` DESC) AS `rnk`
-  FROM `apex_recon`.`gold`.`recon_partner_month`
-  WHERE `billing_month` = '2026-09'
-    AND `revenue_at_risk_usd` IS NOT NULL
-    AND `dsp_name` IS NOT NULL
-    AND `partner_team` IS NOT NULL
-)
-SELECT
-  `dsp_name`,
-  `partner_team`,
-  `revenue_at_risk_usd`,
-  `revenue_gap_pct`,
-  `discrepancy_threshold_pct`,
-  `over_threshold`,
-  `deals_needing_review`
-FROM ranked
-WHERE `rnk` <= 1
+SELECT dsp_name, partner_team, ROUND(revenue_at_risk_usd) AS revenue_at_risk_usd
+FROM apex_recon.gold.recon_partner_month
+WHERE billing_month = '2026-09' AND revenue_at_risk_usd IS NOT NULL AND dsp_name IS NOT NULL
+ORDER BY revenue_at_risk_usd DESC
+LIMIT 1
 ```
 Reference SQL:
 ```sql
 SELECT dsp_name FROM apex_recon.gold.recon_partner_month WHERE billing_month = '2026-09' ORDER BY revenue_at_risk_usd DESC LIMIT 1
 ```
 
-Genie text: In **September 2026**, **Lattice Media** had the highest revenue at risk at **$2,090,964**. For **Lattice Media**, the revenue gap was **5.4%** versus a **7.5%** threshold, so **over_threshold = false**, and **56** deals needed review.
+Genie text: In September 2026, **Lumen Programmatic** had the highest revenue at risk at **$763,255**, and the partner team was **Central**. Based on the result shown, **Lumen Programmatic** was the top DSP for revenue exposure in that month.
 
 ## 3. How many DSPs were over their contract discrepancy threshold in all three months of Q3 2026?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `9`  
-- Genie first row: `['9']`  
+- Expected (reference SQL): `2`  
+- Genie first row: `['2']`  
 - **PASS**
 
 Genie SQL:
@@ -89,18 +68,18 @@ SELECT count(*) FROM (SELECT dsp_id FROM apex_recon.gold.recon_partner_month WHE
          GROUP BY dsp_id HAVING sum(CASE WHEN over_threshold THEN 1 ELSE 0 END) = 3)
 ```
 
-Genie text: **9 DSPs** were over their contract discrepancy threshold in **all three months of Q3 2026**: **2026-07, 2026-08, and 2026-09**. This means the count of DSP IDs flagged as over threshold in each of those three monthly closes is **9**.
+Genie text: **2 DSPs** were over their contract discrepancy threshold in **all three months** of Q3 2026: **2026-07, 2026-08, and 2026-09**.
 
 ## 4. How many open dispute cases are in the Q3 queue in total?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `955`  
-- Genie first row: `['955']`  
+- Expected (reference SQL): `715`  
+- Genie first row: `['715']`  
 - **PASS**
 
 Genie SQL:
 ```sql
-SELECT count(*) AS `open_dispute_cases_q3_total`
+SELECT COUNT(*) AS `open_dispute_cases_q3`
 FROM `apex_recon`.`gold`.`dispute_queue`
 WHERE `billing_month` IN ('2026-07', '2026-08', '2026-09')
 ```
@@ -109,36 +88,51 @@ Reference SQL:
 SELECT count(*) FROM apex_recon.gold.dispute_queue
 ```
 
-Genie text: There are **955** dispute cases in the Q3 queue across billing months **2026-07**, **2026-08**, and **2026-09**. Based on the query result, the total count for Q3 is **955** cases.
+Genie text: There are **715** dispute cases in the Q3 queue across billing months **2026-07**, **2026-08**, and **2026-09**. Based on the query results, the total Q3 queue size is **715** cases.
 
 ## 5. What is the most common predicted root cause among Q3 dispute cases?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `SSAI_BEACON_LOSS`  
-- Genie first row: `['SSAI_BEACON_LOSS', '208']`  
+- Expected (reference SQL): `IVT_FILTERING`  
+- Genie first row: `['IVT_FILTERING', '280']`  
 - **PASS**
 
 Genie SQL:
 ```sql
-SELECT predicted_root_cause, COUNT(*) AS cases
-FROM apex_recon.gold.dispute_queue
-WHERE billing_month IN ('2026-07','2026-08','2026-09') AND predicted_root_cause IS NOT NULL
-GROUP BY predicted_root_cause
-ORDER BY cases DESC, predicted_root_cause ASC
-LIMIT 1
+WITH `root_cause_counts` AS (
+  SELECT
+    `predicted_root_cause`,
+    COUNT(*) AS `cases`
+  FROM `apex_recon`.`gold`.`dispute_queue`
+  WHERE `billing_month` IN ('2026-07', '2026-08', '2026-09')
+    AND `predicted_root_cause` IS NOT NULL
+  GROUP BY `predicted_root_cause`
+), `ranked_root_causes` AS (
+  SELECT
+    `predicted_root_cause`,
+    `cases`,
+    RANK() OVER (ORDER BY `cases` DESC) AS `root_cause_rank`
+  FROM `root_cause_counts`
+)
+SELECT
+  `predicted_root_cause`,
+  `cases`
+FROM `ranked_root_causes`
+WHERE `root_cause_rank` <= 1
+ORDER BY `cases` DESC, `predicted_root_cause`
 ```
 Reference SQL:
 ```sql
 SELECT predicted_root_cause FROM apex_recon.gold.dispute_queue GROUP BY 1 ORDER BY count(*) DESC LIMIT 1
 ```
 
-Genie text: The most common predicted root cause among Q3 dispute cases is **SSAI beacon loss**, with **208** cases. In the Q3 dispute queue result shown, **SSAI beacon loss** ranks highest by case count.
+Genie text: The most common predicted root cause among Q3 dispute cases is **invalid traffic filtering**, with **280** cases. Based on the Q3 dispute-case results shown, **invalid traffic filtering** is the top driver by case count.
 
 ## 6. Which predicted root cause accounts for the most revenue at risk in Q3?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `SSAI_BEACON_LOSS`  
-- Genie first row: `['SSAI_BEACON_LOSS', '5748477.0']`  
+- Expected (reference SQL): `IVT_FILTERING`  
+- Genie first row: `['IVT_FILTERING', '8179089.0']`  
 - **PASS**
 
 Genie SQL:
@@ -169,13 +163,13 @@ Reference SQL:
 SELECT predicted_root_cause FROM apex_recon.gold.dispute_queue GROUP BY 1 ORDER BY sum(revenue_at_risk_usd) DESC LIMIT 1
 ```
 
-Genie text: In Q3, **SSAI beacon loss** is the predicted root cause with the most revenue at risk, totaling **$5,748,477**. Based on the Q3 ranking in the result, **SSAI beacon loss** is the top exposure driver.
+Genie text: In Q3, **IVT filtering** accounts for the most revenue at risk, with **$8,179,089** in revenue at risk. Based on the top-ranked result returned, **IVT filtering** is the largest exposure among predicted root causes for billing months **2026-07 to 2026-09**.
 
 ## 7. How much revenue at risk is attributed to timezone shift cases in Q3?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `1438589.0`  
-- Genie first row: `['1438589.0']`  
+- Expected (reference SQL): `561888.0`  
+- Genie first row: `['561888.0']`  
 - **PASS**
 
 Genie SQL:
@@ -183,100 +177,110 @@ Genie SQL:
 SELECT round(sum(`revenue_at_risk_usd`)) AS `revenue_at_risk_usd`
 FROM `apex_recon`.`gold`.`dispute_queue`
 WHERE `billing_month` IN ('2026-07', '2026-08', '2026-09')
-  AND `predicted_root_cause` ILIKE '%TIMEZONE_SHIFT%'
+  AND `predicted_root_cause` = 'TIMEZONE_SHIFT'
 ```
 Reference SQL:
 ```sql
 SELECT round(sum(revenue_at_risk_usd)) FROM apex_recon.gold.dispute_queue WHERE predicted_root_cause = 'TIMEZONE_SHIFT'
 ```
 
-Genie text: In Q3, revenue at risk attributed to **timezone shift** cases is **$1,438,589**. Based on the result shown, the total exposure for records tagged with predicted root cause **timezone shift** across billing months **2026-07, 2026-08, and 2026-09** is **$1,438,589**.
+Genie text: In Q3 (billing_months **2026-07**, **2026-08**, and **2026-09**), the total revenue at risk for cases with predicted root cause **timezone shift** is **$561,888**. Based on the single result returned, **$561,888** is the full Q3 exposure captured by this query for timezone shift cases.
 
 ## 8. Which partner team has the most revenue at risk in Q3?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `Pacific`  
-- Genie first row: `['Pacific', '1.7520585E7']`  
+- Expected (reference SQL): `Atlantic`  
+- Genie first row: `['Atlantic', '8656616.0']`  
 - **PASS**
 
 Genie SQL:
 ```sql
-WITH team_q3 AS (
-  SELECT partner_team, ROUND(SUM(revenue_at_risk_usd)) AS q3_revenue_at_risk_usd
-  FROM apex_recon.gold.recon_partner_month
-  WHERE billing_month IN ('2026-07','2026-08','2026-09') AND partner_team IS NOT NULL
-  GROUP BY partner_team
+WITH partner_q3 AS (
+  SELECT
+    `partner_team`,
+    ROUND(SUM(`revenue_at_risk_usd`)) AS `q3_revenue_at_risk_usd`
+  FROM `apex_recon`.`gold`.`recon_partner_month`
+  WHERE `billing_month` IN ('2026-07', '2026-08', '2026-09')
+    AND `partner_team` IS NOT NULL
+  GROUP BY `partner_team`
+), ranked AS (
+  SELECT
+    `partner_team`,
+    `q3_revenue_at_risk_usd`,
+    RANK() OVER (ORDER BY `q3_revenue_at_risk_usd` DESC) AS `rnk`
+  FROM partner_q3
 )
-SELECT partner_team, q3_revenue_at_risk_usd
-FROM team_q3
-WHERE q3_revenue_at_risk_usd = (SELECT MAX(q3_revenue_at_risk_usd) FROM team_q3)
-ORDER BY partner_team
+SELECT
+  `partner_team`,
+  `q3_revenue_at_risk_usd`
+FROM ranked
+WHERE `rnk` = 1
 ```
 Reference SQL:
 ```sql
 SELECT partner_team FROM apex_recon.gold.dispute_queue GROUP BY 1 ORDER BY sum(revenue_at_risk_usd) DESC LIMIT 1
 ```
 
-Genie text: The **Pacific** partner team has the most revenue at risk in Q3, with **$17,520,585**. Based on the Q3 totals in the result, **Pacific** is the highest-risk partner team for revenue exposure.
+Genie text: The partner team with the most revenue at risk in Q3 is **Atlantic**, with **$8,656,616** in revenue at risk across billing months **2026-07, 2026-08, and 2026-09**.
 
 ## 9. How many deals needed review in the September 2026 close?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `276`  
-- Genie first row: `['276']`  
+- Expected (reference SQL): `219`  
+- Genie first row: `['219']`  
 - **PASS**
 
 Genie SQL:
 ```sql
-SELECT count(*) AS deals_needing_review
+SELECT COUNT(*) AS `deals_needing_review`
 FROM `apex_recon`.`gold`.`recon_deal_month`
 WHERE `billing_month` = '2026-09'
-  AND `needs_review` = true;
+  AND `needs_review` = TRUE
 ```
 Reference SQL:
 ```sql
 SELECT sum(CAST(needs_review AS INT)) FROM apex_recon.gold.recon_deal_month WHERE billing_month = '2026-09'
 ```
 
-Genie text: In the September 2026 close, **276 deals** needed review. This means **276 deals** in billing_month **2026-09** had needs_review = **true**.
+Genie text: In the **September 2026** close, **219 deals** needed review. This means **219 deals** in billing month **2026-09** were flagged with **needs review = true**.
 
-## 10. Which SSAI vendor has the highest revenue at risk on live content in Q3?
+## 10. Which content genre has the highest revenue at risk on live content in Q3?
 
 - Genie status: COMPLETED  
-- Expected (reference SQL): `PodForge`  
-- Genie first row: `['PodForge', '5331074.0']`  
+- Expected (reference SQL): `sports`  
+- Genie first row: `['sports', '7940256.0']`  
 - **PASS**
 
 Genie SQL:
 ```sql
-WITH `vendor_totals` AS (
+WITH genre_risk AS (
   SELECT
-    `ssai_vendor`,
-    ROUND(SUM(`revenue_at_risk_usd`)) AS `q3_revenue_at_risk_usd`
+    `content_genre`,
+    ROUND(SUM(`revenue_at_risk_usd`)) AS `revenue_at_risk_usd`
   FROM `apex_recon`.`gold`.`recon_deal_month`
   WHERE `billing_month` IN ('2026-07', '2026-08', '2026-09')
-    AND `is_live` = true
-    AND `ssai_vendor` IS NOT NULL
-  GROUP BY `ssai_vendor`
-), `ranked_vendors` AS (
+    AND `is_live` = TRUE
+    AND `content_genre` IS NOT NULL
+  GROUP BY `content_genre`
+), ranked AS (
   SELECT
-    `ssai_vendor`,
-    `q3_revenue_at_risk_usd`,
-    RANK() OVER (ORDER BY `q3_revenue_at_risk_usd` DESC) AS `vendor_rank`
-  FROM `vendor_totals`
+    `content_genre`,
+    `revenue_at_risk_usd`,
+    RANK() OVER (ORDER BY `revenue_at_risk_usd` DESC) AS `rnk`
+  FROM genre_risk
 )
 SELECT
-  `ssai_vendor`,
-  `q3_revenue_at_risk_usd`
-FROM `ranked_vendors`
-WHERE `vendor_rank` <= 1
+  `content_genre`,
+  `revenue_at_risk_usd`
+FROM ranked
+WHERE `rnk` = 1
 ```
 Reference SQL:
 ```sql
-SELECT ssai_vendor FROM apex_recon.gold.dispute_queue WHERE is_live GROUP BY 1 ORDER BY sum(revenue_at_risk_usd) DESC LIMIT 1
+SELECT content_genre FROM apex_recon.gold.dispute_queue WHERE is_live GROUP BY 1 ORDER BY sum(revenue_at_risk_usd) DESC LIMIT 1
 ```
 
-Genie text: **PodForge** has the highest revenue at risk on live content in Q3, with **$5,331,074** in revenue at risk. Based on the Q3 live-content totals in the result, **PodForge** ranks **#1** among SSAI vendors.
+Genie text: In Q3, the **sports** content genre had the highest revenue at risk for live content, at **$7,940,256**. Based on the result shown, **sports** ranked #1 among live content genres for revenue exposure in Q3.
 
 ## 11. How many dispute cases have been resolved so far?
 
@@ -296,7 +300,7 @@ Reference SQL:
 SELECT count(*) FROM apex_recon.ops.dispute_case_status WHERE status = 'RESOLVED'
 ```
 
-Genie text: There have been **1 resolved dispute case** so far. Based on the current dispute status records, the total count of cases with status **RESOLVED** is **1**.
+Genie text: There have been **1** dispute cases with status **RESOLVED** so far. Based on the visible data, the current resolved case count is **1**.
 
 ## 12. How much money has been recovered from resolved disputes so far?
 
@@ -309,11 +313,12 @@ Genie SQL:
 ```sql
 SELECT round(sum(coalesce(`recovered_usd`, 0))) AS `recovered_usd`
 FROM `apex_recon`.`ops`.`dispute_case_status`
-WHERE `status` = 'RESOLVED'
+WHERE `status` IS NOT NULL
+  AND `status` ILIKE '%RESOLVED%'
 ```
 Reference SQL:
 ```sql
 SELECT round(sum(recovered_usd)) FROM apex_recon.ops.dispute_case_status
 ```
 
-Genie text: A total of **$0** has been recovered from disputes with status **RESOLVED** so far. Based on the single result shown, there is currently **no recovered amount** recorded for resolved disputes.
+Genie text: So far, **$0** has been recovered from disputes with status **RESOLVED**. Based on the visible result, there is **1** aggregated total and it shows no recovered dollars recorded for resolved disputes.

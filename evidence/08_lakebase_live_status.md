@@ -12,23 +12,23 @@ FROM apex_recon_ops.recon.dispute_cases ORDER BY updated_at DESC
 ```
 | case_id | status | resolution | confirmed_root_cause | recovered_usd | owner | updated_at |
 |---|---|---|---|---|---|---|
-| CASE-2026-09-D00734 | RESOLVED | CREDIT_ISSUED | IVT_FILTERING | 0.00 | billing.analyst@apexexchange.example | 2026-10-06T17:00:22.029Z |
+| CASE-2026-09-D00422 | RESOLVED | CREDIT_ISSUED | IVT_FILTERING | 0.00 | billing.analyst@apexexchange.example | 2026-10-07T15:20:54.013Z |
 
 ```sql
 SELECT event_id, case_id, event_type, actor, created_at FROM apex_recon_ops.recon.case_events ORDER BY event_id
 ```
 | event_id | case_id | event_type | actor | created_at |
 |---|---|---|---|---|
-| 1 | CASE-2026-09-D00734 | CREATED | billing.analyst@apexexchange.example | 2026-10-06T17:00:06.077Z |
-| 2 | CASE-2026-09-D00734 | EMAIL_SENT | billing.analyst@apexexchange.example | 2026-10-06T17:00:13.437Z |
-| 3 | CASE-2026-09-D00734 | STATUS_CHANGED | billing.analyst@apexexchange.example | 2026-10-06T17:00:22.029Z |
+| 1 | CASE-2026-09-D00422 | CREATED | billing.analyst@apexexchange.example | 2026-10-07T15:20:35.946Z |
+| 2 | CASE-2026-09-D00422 | EMAIL_SENT | billing.analyst@apexexchange.example | 2026-10-07T15:20:43.497Z |
+| 3 | CASE-2026-09-D00422 | STATUS_CHANGED | billing.analyst@apexexchange.example | 2026-10-07T15:20:54.013Z |
 
 ```sql
 SELECT case_id, amount_usd, approved_by, reason, approved_at FROM apex_recon_ops.recon.credit_approvals
 ```
 | case_id | amount_usd | approved_by | reason | approved_at |
 |---|---|---|---|---|
-| CASE-2026-09-D00734 | 215005.82 | billing.analyst@apexexchange.example | IVT_FILTERING | 2026-10-06T17:00:22.029Z |
+| CASE-2026-09-D00422 | 349977.00 | billing.analyst@apexexchange.example | IVT_FILTERING | 2026-10-07T15:20:54.013Z |
 
 ```sql
 SELECT status, count(*) AS cases, round(sum(revenue_at_risk_usd)) AS revenue_at_risk_usd,
@@ -37,12 +37,12 @@ FROM apex_recon.ops.dispute_case_status GROUP BY status ORDER BY status
 ```
 | status | cases | revenue_at_risk_usd | recovered_usd | credited_usd |
 |---|---|---|---|---|
-| OPEN | 954 | 2.7186795E7 | 0.0 | 0.0 |
-| RESOLVED | 1 | 215006.0 | 0.0 | 215006.0 |
+| OPEN | 714 | 1.7763495E7 | 0.0 | 0.0 |
+| RESOLVED | 1 | 349977.0 | 0.0 | 349977.0 |
 
 ```sql
 SELECT count(*) AS cases_in_lakebase_serving_queue FROM apex_recon_ops.serving.case_workbench
 ```
 | cases_in_lakebase_serving_queue |
 |---|
-| 955 |
+| 715 |

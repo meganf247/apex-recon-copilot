@@ -4,7 +4,7 @@ WITH hist AS (
   SELECT resolved_root_cause AS cause,
          sum(recovered_usd) / nullif(sum(greatest(revenue_gap_usd, 0)), 0) AS historical_recovery_rate,
          avg(days_to_resolve) AS avg_days_to_resolve, count(*) AS historical_cases
-  FROM apex_recon.silver.dispute_history GROUP BY 1
+  FROM apex_recon.ml.dispute_history GROUP BY 1
 )
 SELECT q.predicted_root_cause, count(*) AS q3_cases, round(sum(q.revenue_at_risk_usd)) AS q3_revenue_at_risk_usd,
        round(h.historical_recovery_rate, 3) AS historical_recovery_rate,
@@ -25,7 +25,7 @@ FROM apex_recon.gold.recon_deal_month WHERE billing_month >= '2026-07';
 -- Analyst effort: historical time to resolve and cases per month
 SELECT round(avg(days_to_resolve), 1) AS avg_days_to_resolve, percentile_approx(days_to_resolve, 0.9) AS p90_days,
        round(count(*) / 6.0) AS cases_per_month
-FROM apex_recon.silver.dispute_history;
+FROM apex_recon.ml.dispute_history;
 
 -- Pilot scoping: share of Q3 revenue at risk held by the top 5 DSPs
 SELECT round(100 * sum(CASE WHEN rk <= 5 THEN usd END) / sum(usd), 1) AS top5_share_pct

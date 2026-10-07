@@ -10,7 +10,7 @@ The one-time setup is listed at the end for reference.
 | Workspace | https://fevm-megant-fevm.cloud.databricks.com |
 | CLI profile on your laptop | `megan-fevm2` |
 | Repo on your laptop | `~/apex-recon-copilot` (GitHub: `megan-fogal_data/apex-recon-copilot`) |
-| Notebooks and code in the workspace | `/Workspace/Users/megan.fogal@databricks.com/.bundle/apex-recon-copilot/dev/files/src/` |
+| Notebooks and code in the workspace | `/Workspace/Users/megan.fogal@databricks.com/apex-recon-copilot/src/` |
 | Build job | **Jobs & Pipelines → `[dev megan_fogal] apex-recon-build`** (job ID `800507315624085`) |
 | Lakeflow pipeline | `[dev megan_fogal] apex-recon-pipeline` (`7e5bc896-605c-44f6-a2e3-039922e893a9`) |
 | Data | Catalog `apex_recon` (schemas `landing`, `bronze`, `silver`, `gold`, `ml`, `ops`, `serving`) |
@@ -33,17 +33,14 @@ databricks auth login --profile megan-fevm2        # only if your login has expi
 databricks bundle run apex_recon_build -p megan-fevm2
 ```
 
-It takes about 15 minutes. The 7 tasks:
+It takes about 15 minutes. The 4 steps:
 
-| Task | What it does | ~Time |
+| Step | What it does | ~Time |
 |---|---|---|
-| `generate_data` | Regenerates 9 months of synthetic CTV data into `/Volumes/apex_recon/landing/raw` (seed 42, so the same data every time) | 6 min |
-| `ingest_and_reconcile` | Lakeflow pipeline, full refresh: bronze → silver → gold + ML features | 2–3 min |
-| `train_root_cause_model` | Trains the root-cause model and registers a new `@champion` version | 1–2 min |
-| `score_and_draft_disputes` | Scores every deal-month, rebuilds the dispute queue, drafts 250 dispute emails with Claude | 3–4 min |
-| `apply_governance` | Reapplies the row filter, revenue masks and tags | <1 min |
-| `refresh_lakebase_queue` | Pushes the new queue into Lakebase for the app | <1 min |
-| `publish_case_status_view` | Recreates the live case-status view over Lakebase | <1 min |
+| `generate_data` | Regenerates 9 months of synthetic data into `/Volumes/apex_recon/landing/raw` plus the reference tables (`silver.deals`, `silver.dsps`) and dispute history (`ml.dispute_history`). Seed 42, so the same data every time. | 6 min |
+| `pipeline` | Lakeflow pipeline, full refresh: `bronze.ssp_logs`, `bronze.dsp_reports` → `silver.ssp_daily`, `silver.dsp_daily` → `gold.recon_deal_month` → `gold.recon_partner_month` | 2–3 min |
+| `ml_and_disputes` | Builds features, trains and registers the root-cause model, builds `gold.dispute_queue`, drafts 250 disputes with Claude, checks them, refreshes the Lakebase queue | 4–5 min |
+| `publish` | Reapplies the row filter, revenue masks and tags; recreates the live case-status view over Lakebase | <1 min |
 
 Click any task in the run to see its output. Each notebook ends with a JSON summary (row counts, model scores, GenAI checks).
 
@@ -83,8 +80,8 @@ If the app shows "Stopped", start it from **Compute → Apps → apex-recon-work
 | To show | Go to |
 |---|---|
 | Raw partner files (3 DSP layouts, SSP logs, publisher exports) | Catalog → `apex_recon` → `landing` → volume `raw` |
-| Pipeline graph and data-quality results | Jobs & Pipelines → `apex-recon-pipeline` → latest update → click `silver.dsp_daily_reports` for expectation pass/fail |
-| Quarantined partner rows and why | `SELECT * FROM apex_recon.silver.dsp_reports_quarantine` |
+| Pipeline graph and data-quality results | Jobs & Pipelines → `apex-recon-pipeline` → latest update → click `silver.dsp_daily` for the 4 rules' pass/fail counts |
+| The 3 joins | `src/02_pipeline.py`, function `recon_deal_month` |
 | Reconciliation results | `apex_recon.gold.recon_partner_month`, `recon_deal_month`, `dispute_queue` |
 | Lineage | Catalog → `apex_recon.gold.dispute_queue` → **Lineage** tab |
 | Row filter and masks | Catalog → `apex_recon.gold.dispute_queue` → Overview (row filter + masked columns); access is in `apex_recon.ops.recon_access` |
@@ -111,6 +108,7 @@ then query `apex_recon.gold.dispute_queue`. Restore with `SET partner_team = '*'
 |---|---|
 | Change code and redeploy | Edit files in `~/apex-recon-copilot`, then `databricks bundle deploy -p megan-fevm2` (then rerun the job) |
 | Change data volume, causes or noise | Edit `src/01_generate_data.py`; test locally with `python3 src/01_generate_data.py` (writes to `/tmp/apex_raw`), then deploy and rerun the job |
+| Change the pipeline | Edit `src/02_pipeline.py`, deploy, rerun the job |
 | Change Genie instructions or example SQL | Edit `scripts/create_genie_space.py`, then `python3 scripts/create_genie_space.py --space-id 01f1c1a695ce1f47baa2f07ef9f73663` |
 | Reset the app's cases | In the Lakebase SQL editor (`apex-recon-lb` → `databricks_postgres`): `TRUNCATE recon.credit_approvals, recon.case_events, recon.dispute_cases RESTART IDENTITY;` |
 | Give someone access to the data | Add a row to `apex_recon.ops.recon_access` (`principal`, `partner_team` or `*`, `can_see_revenue`) |
@@ -152,10 +150,11 @@ cd deck && pandoc apex_recon_deck.md -s --metadata pagetitle="Apex Exchange" -c 
 | Symptom | Fix |
 |---|---|
 | CLI says the token is invalid or expired | `databricks auth login --profile megan-fevm2` |
-| Pipeline fails: "Table … is already managed by pipeline …" | A table was created by a different pipeline. Drop the pipeline-owned tables and rerun: list them with `SELECT table_schema, table_name, table_type FROM apex_recon.information_schema.tables WHERE table_type IN ('STREAMING_TABLE','MATERIALIZED_VIEW')`, then `DROP TABLE` / `DROP MATERIALIZED VIEW` each one |
-| App errors on the queue or a case | Check the synced table: `databricks postgres get-synced-table synced_tables/apex_recon.serving.case_workbench -p megan-fevm2` (should be `ONLINE`); rerun the `refresh_lakebase_queue` task |
+| Pipeline fails: "Table … is already managed by pipeline …" | A table was created by a different pipeline. Drop the pipeline's 6 tables (`DROP TABLE` for the two bronze tables, `DROP MATERIALIZED VIEW` for the silver and gold ones) and rerun |
+| App errors on the queue or a case | Check the synced table: `databricks postgres get-synced-table synced_tables/apex_recon.serving.case_workbench -p megan-fevm2` (should be `ONLINE`). The `ml_and_disputes` step refreshes it; its output says `Lakebase sync: refresh started` |
+| You changed the columns of `gold.case_workbench` | Delete and recreate the synced table (appendix step 5), then rerun `scripts/grant_app.sh` |
 | App can't write to Lakebase after recreating it | Rerun `scripts/grant_app.sh` (the app gets a new service principal) |
-| `ai_query` fails with "not supported for batch inference" | The model endpoint isn't enabled for batch; keep `databricks-claude-sonnet-4-6` in `src/04_score_and_draft.py` |
+| `ai_query` fails with "not supported for batch inference" | The model endpoint isn't enabled for batch; keep `databricks-claude-sonnet-4-6` in `src/03_ml_and_disputes.py` |
 | Genie gives a wrong answer | Add an example query or instruction in `scripts/create_genie_space.py` and push it with `--space-id` |
 
 ---
@@ -164,9 +163,17 @@ cd deck && pandoc apex_recon_deck.md -s --metadata pagetitle="Apex Exchange" -c 
 
 For reference only, in case you rebuild elsewhere:
 1. Catalog `apex_recon`, then `python3 scripts/run_sql.py src/00_setup_uc.sql` (schemas + volume).
-2. Lakebase project `apex-recon-lb`, registered in Unity Catalog as `apex_recon_ops` (catalog type **Lakebase Postgres**, branch `production`, database `databricks_postgres`). Your Postgres role was given `DATABRICKS_SUPERUSER` membership so it can create tables.
-3. Case tables: `psql ... -f src/05_lakebase_schema.sql` against `databricks_postgres`.
-4. `databricks bundle deploy -p megan-fevm2` (notebooks, pipeline, job, app).
-5. Synced table `apex_recon.serving.case_workbench` (`databricks postgres create-synced-table ...`); its pipeline ID goes in `resources/jobs.yml`.
+2. Lakebase project `apex-recon-lb`, registered in Unity Catalog as `apex_recon_ops` (catalog type **Lakebase Postgres**,
+   branch `production`, database `databricks_postgres`). Your Postgres role needs `DATABRICKS_SUPERUSER` membership to
+   create tables (`databricks postgres update-role ... spec.membership_roles`).
+3. Case tables: `psql ... -f src/00_setup_lakebase.sql` against `databricks_postgres`.
+4. `databricks bundle deploy -p megan-fevm2`, then run the job once so `gold.case_workbench` exists.
+5. Synced table:
+   ```bash
+   databricks postgres create-synced-table apex_recon.serving.case_workbench -p megan-fevm2 --json '{"spec": {
+     "source_table_full_name": "apex_recon.gold.case_workbench", "primary_key_columns": ["case_id"],
+     "scheduling_policy": "SNAPSHOT", "branch": "projects/apex-recon-lb/branches/production",
+     "postgres_database": "databricks_postgres", "create_database_objects_if_missing": true}}'
+   ```
 6. Genie space: `python3 scripts/create_genie_space.py`; its ID goes in `resources/app.yml` and `tests/app_smoke_test.py`.
-7. App grants: `scripts/grant_app.sh`.
+7. App: `databricks bundle run recon_workbench -p megan-fevm2`, then `scripts/grant_app.sh`.

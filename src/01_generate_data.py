@@ -2,21 +2,19 @@
 # MAGIC %md
 # MAGIC # 01 · Synthetic CTV data generator
 # MAGIC
-# MAGIC Generates nine months (Jan–Sep 2026) of data for **Apex Exchange**, a fictional CTV SSP, and lands it in
-# MAGIC `/Volumes/apex_recon/landing/raw` exactly the way the real sources would arrive:
+# MAGIC Nine months (Jan–Sep 2026) of data for **Apex Exchange**, a fictional CTV SSP:
 # MAGIC
-# MAGIC | Source | Format | Grain |
+# MAGIC | Output | Where | What |
 # MAGIC |---|---|---|
-# MAGIC | `ssp_logs/` | JSON lines, gzip, one file per UTC day | deal × hour (UTC) — Apex's system of record |
-# MAGIC | `dsp_reports/<dsp_id>/<YYYY-MM>.csv` | CSV in **3 partner formats**, partner timezone + currency | deal × partner-local day |
-# MAGIC | `publisher_reports/<publisher_id>/<YYYY-MM>.csv` | Ad server export (FreeWheel / GAM / SpringServe style) | deal × publisher-local day |
-# MAGIC | `reference/` | CSV | DSPs, publishers, deals, contracts, FX rates |
-# MAGIC | `history/dispute_resolutions.csv` | CSV | Jan–Jun disputes resolved by analysts (ML training labels) |
+# MAGIC | SSP auction logs | `/Volumes/apex_recon/landing/raw/ssp_logs/*.json.gz` | Apex's own count: deal × hour (UTC), one file per day |
+# MAGIC | DSP billing reports | `/Volumes/apex_recon/landing/raw/dsp_reports/<dsp_id>/*.csv` | Each DSP's count: deal × day, one file per DSP per month |
+# MAGIC | Reference tables | `apex_recon.silver.dsps`, `apex_recon.silver.deals` | Partner contracts and deal attributes |
+# MAGIC | Dispute history | `apex_recon.ml.dispute_history` | Jan–Jun disputes resolved by Billing Ops (ML training labels) |
+# MAGIC | Ground truth | `apex_recon.ml.ground_truth_root_causes` | Planted cause per deal-month, for model evaluation only |
 # MAGIC
-# MAGIC DSP reports are derived from the same ground truth as the SSP logs, then distorted with **planted root causes**
-# MAGIC (timezone shift, CTV IVT filtering, SSAI beacon loss, deal-ID mis-mapping, FX mismatch, missing data, genuine billing
-# MAGIC errors) so the root-cause model has real signal to learn. Data-quality defects are injected for Lakeflow expectations.
-# MAGIC The ground truth for every deal-month is written to `apex_recon.ml.ground_truth_root_causes` for model evaluation only.
+# MAGIC DSP reports start from the same delivery as Apex's logs, then get distorted by one of **five root causes**
+# MAGIC (plus a smaller second cause on ~30% of problem cases, like real disputes). The CSVs also contain bad rows
+# MAGIC (missing deal IDs, negative counts, bad dates, duplicates) for the pipeline's data-quality rules to catch.
 
 # COMMAND ----------
 
@@ -30,57 +28,36 @@ import pandas as pd
 try:
     dbutils.widgets.text("catalog", "apex_recon")
     dbutils.widgets.text("seed", "42")
-    CATALOG = dbutils.widgets.get("catalog")
-    SEED = int(dbutils.widgets.get("seed"))
-    ON_DATABRICKS = True
+    CATALOG, SEED, ON_DATABRICKS = dbutils.widgets.get("catalog"), int(dbutils.widgets.get("seed")), True
     ROOT = f"/Volumes/{CATALOG}/landing/raw"
-except NameError:  # local dry run
+except NameError:  # local dry run: python src/01_generate_data.py
     CATALOG, SEED, ON_DATABRICKS = "apex_recon", 42, False
     ROOT = os.environ.get("APEX_LOCAL_ROOT", "/tmp/apex_raw")
-
 rng = np.random.default_rng(SEED)
-print(f"catalog={CATALOG} seed={SEED} root={ROOT}")
 
-# COMMAND ----------
-
-# MAGIC %md ## Calendar and constants
-
-# COMMAND ----------
-
-START = pd.Timestamp("2026-01-01", tz="UTC")
-HOURS = pd.date_range(START, pd.Timestamp("2026-09-30 23:00", tz="UTC"), freq="h")
-N_H = len(HOURS)
-N_DAYS = N_H // 24
-DAY = np.arange(N_H) // 24
-MON = (HOURS.month - 1).to_numpy()  # 0..8 (UTC month)
-N_MON = 9
-HISTORY_MONTHS = 6  # Jan–Jun resolved; Jul–Sep are the current closes
-DATES = pd.date_range("2026-01-01", periods=N_DAYS, freq="D")
-DATE_STR = DATES.strftime("%Y-%m-%d").to_numpy()
-
-ET = HOURS.tz_convert("America/New_York")
-LH_ET = ET.hour.to_numpy()  # US audience local hour drives viewing
-DOW_ET = ET.dayofweek.to_numpy()
-
-TZS = ["UTC", "America/New_York", "America/Los_Angeles"]
-
-
-def local_day_index(tz):
-    """Local calendar day index (0 = 2026-01-01) for every UTC hour; -1 for hours before Jan 1 local."""
-    local = HOURS.tz_convert(tz).tz_localize(None).normalize()
-    return ((local - pd.Timestamp("2026-01-01")).days).to_numpy()
-
-
-LOCAL_DAY = np.stack([local_day_index(tz) for tz in TZS])  # [tz, hour]
-
-GENRES = ["sports", "news", "entertainment", "kids"]
-CAUSES = ["WITHIN_TOLERANCE", "TIMEZONE_SHIFT", "IVT_FILTERING", "SSAI_BEACON_LOSS",
-          "DEAL_ID_MISMAPPING", "FX_MISMATCH", "LATE_OR_MISSING_DATA", "GENUINE_BILLING_ERROR"]
+CAUSES = ["WITHIN_TOLERANCE", "TIMEZONE_SHIFT", "IVT_FILTERING", "LATE_OR_MISSING_DATA", "GENUINE_BILLING_ERROR"]
 C = {c: i for i, c in enumerate(CAUSES)}
 
 # COMMAND ----------
 
-# MAGIC %md ## Reference entities: DSPs, CTV publishers, deals, contracts, FX
+# MAGIC %md ## Calendar
+
+# COMMAND ----------
+
+HOURS = pd.date_range("2026-01-01", "2026-09-30 23:00", freq="h", tz="UTC")
+N_H, N_DAYS, N_MON, HISTORY_MONTHS = len(HOURS), len(HOURS) // 24, 9, 6
+DAY = np.arange(N_H) // 24
+MON = (HOURS.month - 1).to_numpy()
+DATES = pd.date_range("2026-01-01", periods=N_DAYS, freq="D")
+ET = HOURS.tz_convert("America/New_York")
+LH_ET, DOW_ET = ET.hour.to_numpy(), ET.dayofweek.to_numpy()  # US audience time drives viewing
+# Day index of each UTC hour as seen by a partner that (wrongly) reports in US Eastern or Pacific time
+LOCAL_DAY = {tz: ((HOURS.tz_convert(tz).tz_localize(None).normalize() - pd.Timestamp("2026-01-01")).days).to_numpy()
+             for tz in ["UTC", "America/New_York", "America/Los_Angeles"]}
+
+# COMMAND ----------
+
+# MAGIC %md ## Reference data: 40 DSPs, 800 CTV deals
 
 # COMMAND ----------
 
@@ -92,114 +69,54 @@ DSP_NAMES = ["TradeNova", "BidSphere", "Quantive Media", "Reachlytics", "Pixelpa
              "Sable Buy", "Tidal Media", "Umbra Ads", "Vertex Buy", "Willow Demand", "Xenon Media", "Yarrow Ads",
              "Zephyr Demand", "Cascade Reach"]
 N_DSP = len(DSP_NAMES)
+dsp_tz = np.full(N_DSP, "UTC", dtype=object)  # hidden: contracts say UTC, six partners actually report in US time
 perm = rng.permutation(N_DSP)
-dsp_tz = np.full(N_DSP, "UTC", dtype=object)
-dsp_tz[perm[:4]] = "America/New_York"
-dsp_tz[perm[4:6]] = "America/Los_Angeles"
-dsp_cur = np.full(N_DSP, "USD", dtype=object)
-dsp_cur[perm[6:10]] = "EUR"
-dsp_cur[perm[10:12]] = "GBP"
-dsp_schema = rng.choice(["A", "B", "C"], N_DSP, p=[0.5, 0.2, 0.3]).astype(object)
-dsp_schema[dsp_cur != "USD"] = "B"  # the only format that carries a currency column
-dsp_team = rng.choice(["Atlantic", "Pacific", "Central"], N_DSP).astype(object)
-dsp_team[dsp_cur != "USD"] = "EMEA"
+dsp_tz[perm[:4]], dsp_tz[perm[4:6]] = "America/New_York", "America/Los_Angeles"
+dsp_offender = rng.lognormal(0, 0.6, N_DSP)  # some partners cause more problems than others
+dsp_size = rng.lognormal(0, 1.0, N_DSP)
 dsps = pd.DataFrame({
     "dsp_id": [f"DSP{i:03d}" for i in range(1, N_DSP + 1)],
     "dsp_name": DSP_NAMES,
-    "seat_id": [f"S-{x}" for x in rng.choice(np.arange(1000, 9999), N_DSP, replace=False)],
-    "reporting_timezone": dsp_tz,
-    "reporting_currency": dsp_cur,
-    "report_format": dsp_schema,
-    "ivt_vendor_strictness": rng.uniform(0.6, 1.4, N_DSP).round(2),
-    "partner_team": dsp_team,
-})
-dsp_offender = rng.lognormal(0, 0.6, N_DSP)  # some partners are repeat offenders
-dsp_size = rng.lognormal(0, 1.0, N_DSP)
-dsp_contracts = pd.DataFrame({
-    "dsp_id": dsps.dsp_id,
+    "partner_team": rng.choice(["Atlantic", "Pacific", "Central", "EMEA"], N_DSP),
     "discrepancy_threshold_pct": rng.choice([5.0, 7.5, 10.0], N_DSP, p=[0.2, 0.3, 0.5]),
     "billing_count_basis": rng.choice(["SSP", "DSP"], N_DSP, p=[0.6, 0.4]),
-    "payment_terms_days": rng.choice([30, 45, 60], N_DSP, p=[0.3, 0.4, 0.3]),
-    "contract_reporting_timezone": "UTC",
+    "payment_terms_days": rng.choice([30, 45, 60], N_DSP),
 })
 
-N_PUB = 150
-pub_type = rng.choice(["streaming_service", "fast_channel", "device_platform"], N_PUB, p=[0.27, 0.46, 0.27])
+N_PUB, N_DEAL = 150, 800
 WORDS = ["Northwind", "Bluebird", "Summit", "Riverbend", "Lakeshore", "Granite", "Silverline", "Redrock", "Evergreen",
-         "Harborview", "Maple", "Coastal", "Prairie", "Ironbridge", "Golden", "Pinecrest", "Clearwater", "Highland",
-         "Sunset", "Starlight", "Beacon", "Cedar", "Driftwood", "Falcon", "Glacier"]
-SUFFIX = {"streaming_service": ["Stream", "Plus", "Play", "TV+", "Now", "Vision"],
-          "fast_channel": ["Sports Network", "News Live", "Classics", "Kids TV", "Comedy Channel", "Movies FAST"],
-          "device_platform": ["TV OS", "Smart TV", "Cast", "Home Screen", "Box", "Stick"]}
-names, used = [], set()
-for t in pub_type:
-    while True:
-        n = f"{rng.choice(WORDS)} {rng.choice(SUFFIX[t])}"
-        if n not in used:
-            used.add(n)
-            names.append(n)
-            break
-pub_ivt = rng.beta(2, 12, N_PUB) + np.where(pub_type == "fast_channel", 0.05, 0.0) - np.where(pub_type == "device_platform", 0.03, 0.0)
-SSAI = {"Stitchwave": 0.7, "PodForge": 1.0, "Splice Media": 1.4}  # relative beacon-loss propensity
-publishers = pd.DataFrame({
-    "publisher_id": [f"P{i:04d}" for i in range(1, N_PUB + 1)],
-    "publisher_name": names,
-    "publisher_type": pub_type,
-    "ad_server": rng.choice(["FreeWheel", "Google Ad Manager", "SpringServe"], N_PUB, p=[0.45, 0.35, 0.2]),
-    "ssai_vendor": rng.choice(list(SSAI), N_PUB, p=[0.4, 0.35, 0.25]),
-    "reporting_timezone": rng.choice(["UTC", "America/New_York"], N_PUB, p=[0.85, 0.15]),
-    "ivt_risk_score": np.clip(pub_ivt, 0.01, 0.6).round(3),
-})
-pub_contracts = pd.DataFrame({
-    "publisher_id": publishers.publisher_id,
-    "publisher_rev_share_pct": rng.uniform(80, 88, N_PUB).round(1),
-    "discrepancy_threshold_pct": rng.choice([5.0, 10.0], N_PUB, p=[0.4, 0.6]),
-})
-pub_count_loss = rng.uniform(0.005, 0.03, N_PUB)  # publisher ad server counts slightly fewer than the SSP
+         "Harborview", "Maple", "Coastal", "Prairie", "Ironbridge", "Golden", "Pinecrest", "Clearwater", "Highland"]
+SUFFIX = ["Stream", "Plus", "Sports Network", "News Live", "Classics", "Kids TV", "TV OS", "Smart TV", "Cast"]
+pub_names = rng.choice([f"{w} {s}" for w in WORDS for s in SUFFIX], N_PUB, replace=False)
+pub_ivt = np.clip(rng.beta(2, 12, N_PUB), 0.01, 0.5)  # Apex's own invalid-traffic risk score per publisher
 
-N_DEAL = 800
+GENRES = np.array(["sports", "news", "entertainment", "kids"])
 d_dsp = rng.choice(N_DSP, N_DEAL, p=dsp_size / dsp_size.sum())
 d_pub = rng.integers(0, N_PUB, N_DEAL)
 d_genre = rng.choice(4, N_DEAL, p=[0.25, 0.15, 0.45, 0.15])
-live_p = np.array([0.8, 0.6, 0.1, 0.0])[d_genre]
-d_live = rng.random(N_DEAL) < live_p
+d_live = rng.random(N_DEAL) < np.array([0.8, 0.6, 0.1, 0.0])[d_genre]
 d_type = rng.choice(["PG", "PMP", "OPEN"], N_DEAL, p=[0.2, 0.5, 0.3])
-type_mult = pd.Series(d_type).map({"PG": 1.35, "PMP": 1.15, "OPEN": 1.0}).to_numpy()
-genre_mult = np.array([1.25, 1.0, 1.0, 0.8])[d_genre]
-d_cpm = rng.uniform(22, 38, N_DEAL) * type_mult * genre_mult * np.where(d_live, 1.1, 1.0)
-d_base = np.clip(rng.lognormal(np.log(4500), 1.0, N_DEAL), 150, 120_000)
+d_cpm = (rng.uniform(22, 38, N_DEAL) * pd.Series(d_type).map({"PG": 1.35, "PMP": 1.15, "OPEN": 1.0}).to_numpy()
+         * np.array([1.25, 1.0, 1.0, 0.8])[d_genre])
+d_base = np.clip(rng.lognormal(np.log(4500), 1.0, N_DEAL), 150, 120_000)  # impressions per hour
 always_on = rng.random(N_DEAL) < 0.5
 d_start = np.where(always_on, 0, rng.integers(0, 200, N_DEAL))
 d_end = np.where(always_on, N_DAYS - 1, np.minimum(d_start + rng.integers(45, N_DAYS, N_DEAL), N_DAYS - 1))
 deals = pd.DataFrame({
     "deal_id": [f"D{i:05d}" for i in range(1, N_DEAL + 1)],
-    "deal_name": [f"{publishers.publisher_name[p]} · {GENRES[g].title()} · {t}" for p, g, t in zip(d_pub, d_genre, d_type)],
     "dsp_id": dsps.dsp_id.to_numpy()[d_dsp],
-    "dsp_deal_code": [f"{dsps.seat_id[k]}-{rng.integers(0, 16**6):06x}" for k in d_dsp],
-    "publisher_id": publishers.publisher_id.to_numpy()[d_pub],
+    "publisher_name": pub_names[d_pub],
+    "deal_name": [f"{pub_names[p]} · {GENRES[g].title()} · {t}" for p, g, t in zip(d_pub, d_genre, d_type)],
     "deal_type": d_type,
-    "content_genre": np.array(GENRES)[d_genre],
+    "content_genre": GENRES[d_genre],
     "is_live": d_live,
-    "device_type": rng.choice(["smart_tv", "streaming_stick", "gaming_console", "set_top_box"], N_DEAL, p=[0.5, 0.3, 0.1, 0.1]),
-    "floor_cpm_usd": (d_cpm * 0.7).round(2),
-    "flight_start": DATE_STR[d_start],
-    "flight_end": DATE_STR[d_end],
+    "ivt_risk_score": pub_ivt[d_pub].round(3),
 })
-
-fx_rates = []
-for cur, base in [("EUR", 1.08), ("GBP", 1.27)]:
-    walk = base * np.exp(np.cumsum(rng.normal(0, 0.004, N_DAYS)))
-    fx_rates.append(pd.DataFrame({"rate_date": DATE_STR, "currency": cur, "usd_per_unit": walk.round(5)}))
-fx_rates = pd.concat(fx_rates, ignore_index=True)
-FX = {"USD": np.ones(N_DAYS)}
-for cur in ["EUR", "GBP"]:
-    FX[cur] = fx_rates[fx_rates.currency == cur].usd_per_unit.to_numpy()
-print(f"{N_DSP} DSPs, {N_PUB} CTV publishers, {N_DEAL} deals")
 
 # COMMAND ----------
 
-# MAGIC %md ## Ground truth: hourly delivered impressions and revenue
-# MAGIC Primetime peak (8–11pm ET), weekend lift, live sports on weekends + Mon/Thu nights, NFL ramp in September.
+# MAGIC %md ## What Apex actually delivered (hourly)
+# MAGIC Primetime peak 8–11pm ET, weekend lift, live sports on weekends and Mon/Thu nights, NFL ramp in September.
 
 # COMMAND ----------
 
@@ -213,19 +130,12 @@ def curve(base, bumps):
     return y / y.mean()
 
 
-CURVE = np.stack([
-    curve(0.10, [(21, 1.8, 1.6), (14, 2.5, 0.6)]),  # sports
-    curve(0.15, [(7, 1.5, 0.7), (18, 1.5, 0.8), (22, 1.5, 0.6)]),  # news
-    curve(0.10, [(21, 1.8, 1.6), (15, 3.0, 0.3)]),  # entertainment
-    curve(0.15, [(8, 2.0, 0.8), (16, 2.0, 0.9)]),  # kids
-])
-CURVE01 = (CURVE - CURVE.min(1, keepdims=True)) / np.ptp(CURVE, axis=1, keepdims=True)
-WEEK = np.array([
-    [1.2, 0.9, 0.9, 1.2, 0.95, 1.4, 1.45],  # sports: MNF/TNF, weekend games
-    [1.0, 1.0, 1.0, 1.0, 1.0, 0.85, 0.85],
-    [0.95, 0.95, 0.95, 0.95, 1.05, 1.15, 1.15],
-    [0.9, 0.9, 0.9, 0.9, 0.95, 1.3, 1.3],
-])
+CURVE = np.stack([curve(0.10, [(21, 1.8, 1.6), (14, 2.5, 0.6)]),                 # sports
+                  curve(0.15, [(7, 1.5, 0.7), (18, 1.5, 0.8), (22, 1.5, 0.6)]),  # news
+                  curve(0.10, [(21, 1.8, 1.6), (15, 3.0, 0.3)]),                 # entertainment
+                  curve(0.15, [(8, 2.0, 0.8), (16, 2.0, 0.9)])])                 # kids
+WEEK = np.array([[1.2, 0.9, 0.9, 1.2, 0.95, 1.4, 1.45], [1, 1, 1, 1, 1, 0.85, 0.85],
+                 [0.95, 0.95, 0.95, 0.95, 1.05, 1.15, 1.15], [0.9, 0.9, 0.9, 0.9, 0.95, 1.3, 1.3]])
 SPORTS_MONTH = np.array([1.25, 1.15, 0.95, 0.9, 0.9, 0.85, 0.85, 0.95, 1.6])
 TREND = 1 + 0.10 * np.arange(N_H) / N_H
 
@@ -233,374 +143,177 @@ parts = []
 for i in range(N_DEAL):
     g = d_genre[i]
     h = np.arange(d_start[i] * 24, (d_end[i] + 1) * 24)
-    day_noise = rng.lognormal(0, 0.12, N_DAYS)
-    lam = d_base[i] * CURVE[g][LH_ET[h]] * WEEK[g][DOW_ET[h]] * TREND[h] * day_noise[DAY[h]]
-    if g == 0:
-        lam *= SPORTS_MONTH[MON[h]]
-    lam *= rng.random(h.size) < 0.93  # hours with no fill
-    imps = rng.poisson(lam)
+    lam = (d_base[i] * CURVE[g][LH_ET[h]] * WEEK[g][DOW_ET[h]] * TREND[h]
+           * rng.lognormal(0, 0.12, N_DAYS)[DAY[h]] * (SPORTS_MONTH[MON[h]] if g == 0 else 1))
+    imps = rng.poisson(lam * (rng.random(h.size) < 0.93))
     keep = imps > 0
     h, imps = h[keep], imps[keep]
-    cpm = d_cpm[i] * (1 + 0.15 * (CURVE01[g][LH_ET[h]] - 0.5)) * rng.normal(1, 0.03, h.size)
-    parts.append((np.full(h.size, i, np.int32), h.astype(np.int32), imps.astype(np.int64), imps * cpm / 1000))
-
-deal_ix = np.concatenate([p[0] for p in parts])
-hour_ix = np.concatenate([p[1] for p in parts])
-imps = np.concatenate([p[2] for p in parts])
-rev = np.concatenate([p[3] for p in parts])
-cpm_row = rev / imps * 1000
-print(f"{len(imps):,} deal-hours, {imps.sum():,} impressions, ${rev.sum():,.0f} gross revenue")
+    cpm = d_cpm[i] * rng.normal(1, 0.03, h.size)
+    parts.append((np.full(h.size, i), h, imps, imps * cpm / 1000))
+deal_ix, hour_ix, imps, rev = (np.concatenate([p[k] for p in parts]) for k in range(4))
+print(f"{len(imps):,} deal-hours · {imps.sum():,} impressions · ${rev.sum():,.0f} gross revenue")
 
 # COMMAND ----------
 
-# MAGIC %md ## Plant root causes per deal-month
+# MAGIC %md ## Plant a root cause on every deal-month
 
 # COMMAND ----------
 
 dm_key = deal_ix * N_MON + MON[hour_ix]
-dm_cause = np.full(N_DEAL * N_MON, -1, np.int16)
-dm_param = np.zeros(N_DEAL * N_MON)
-dm_partner = np.full(N_DEAL * N_MON, -1, np.int32)
-dm_cause2 = np.full(N_DEAL * N_MON, -1, np.int16)  # secondary, smaller contributing cause (real cases are often mixed)
-dm_param2 = np.zeros(N_DEAL * N_MON)
-dm_tz = np.zeros(N_DEAL * N_MON, bool)  # partner reported in its local timezone this month
 active = np.unique(dm_key)
-
-deal_dsp_tz = dsp_tz[d_dsp]
-deal_cur = dsp_cur[d_dsp]
-deal_ivt = publishers.ivt_risk_score.to_numpy()[d_pub]
-deal_ssai = pd.Series(publishers.ssai_vendor.to_numpy()[d_pub]).map(SSAI).to_numpy()
-BASE_P = {"IVT_FILTERING": 0.10, "SSAI_BEACON_LOSS": 0.10, "DEAL_ID_MISMAPPING": 0.03,
-          "FX_MISMATCH": 0.06, "LATE_OR_MISSING_DATA": 0.05, "GENUINE_BILLING_ERROR": 0.05}
+cause = np.full(N_DEAL * N_MON, -1)
+param = np.zeros(N_DEAL * N_MON)
+cause2 = np.full(N_DEAL * N_MON, -1)  # smaller secondary cause
+param2 = np.zeros(N_DEAL * N_MON)
+tz_month = np.zeros(N_DEAL * N_MON, bool)
 
 for k in active:
     i = k // N_MON
-    if deal_dsp_tz[i] != "UTC" and rng.random() < 0.7:  # some months the partner gets it right
-        dm_cause[k] = C["TIMEZONE_SHIFT"]
-        dm_tz[k] = True
-        continue
-    w = dsp_offender[d_dsp[i]]
-    p = {c: v * w for c, v in BASE_P.items()}
-    p["IVT_FILTERING"] *= 0.5 + 0.5 * deal_ivt[i] / 0.14
-    p["SSAI_BEACON_LOSS"] *= deal_ssai[i] * (1.3 if d_live[i] else 0.9)
-    p["FX_MISMATCH"] = 0.0 if deal_cur[i] == "USD" else 0.30
-    p["WITHIN_TOLERANCE"] = max(0.2, 1 - sum(p.values()))
-    names_, probs = list(p), np.array(list(p.values()))
-    dm_cause[k] = C[names_[rng.choice(len(names_), p=probs / probs.sum())]]
-
-# effect sizes
-for k in active:
-    c, i = CAUSES[dm_cause[k]], k // N_MON
-    if c == "IVT_FILTERING":
-        dm_param[k] = np.clip(deal_ivt[i] * dsps.ivt_vendor_strictness[d_dsp[i]] * rng.uniform(0.25, 0.5) + 0.03
-                              + rng.normal(0, 0.015), 0.035, 0.15)
-    elif c == "SSAI_BEACON_LOSS":
-        dm_param[k] = rng.uniform(0.04, 0.11)
-    elif c == "FX_MISMATCH":
-        dm_param[k] = rng.uniform(0.04, 0.10)
-    elif c == "GENUINE_BILLING_ERROR":
-        dm_param[k] = rng.uniform(0.35, 0.6)  # share of days under-reported
-    elif c == "LATE_OR_MISSING_DATA":
-        dm_param[k] = rng.integers(2, 7)  # days missing
-
-# pair deal-ID mis-mappings with a same-DSP, same-month sibling that is otherwise clean
-deal_dsp_arr = d_dsp
-for k in [k for k in active if dm_cause[k] == C["DEAL_ID_MISMAPPING"] and dm_partner[k] == -1]:
-    i, m = k // N_MON, k % N_MON
-    sib = [j for j in np.flatnonzero(deal_dsp_arr == deal_dsp_arr[i])
-           if j != i and dm_cause[j * N_MON + m] == C["WITHIN_TOLERANCE"]]
-    if not sib:
-        dm_cause[k] = C["WITHIN_TOLERANCE"]
-        continue
-    j = rng.choice(sib)
-    dm_param[k] = rng.uniform(0.2, 0.5)  # share of impressions booked under the wrong deal
-    dm_partner[k] = j
-    dm_cause[j * N_MON + m] = C["DEAL_ID_MISMAPPING"]
-    dm_partner[j * N_MON + m] = -2 - i  # receiver marker, encodes the source deal
-
-# Secondary causes: a smaller second effect on ~30% of problem deal-months (and a few clean ones), which is what
-# makes real disputes hard to call. The label stays the primary (larger) cause.
-SECONDARY = ["IVT_FILTERING", "SSAI_BEACON_LOSS", "GENUINE_BILLING_ERROR"]
-for k in active:
-    c = CAUSES[dm_cause[k]]
-    if c == "DEAL_ID_MISMAPPING" or rng.random() > (0.3 if c != "WITHIN_TOLERANCE" else 0.08):
-        continue
-    options = [x for x in SECONDARY if x != c]
-    c2 = rng.choice(options)
-    dm_cause2[k] = C[c2]
-    dm_param2[k] = {"IVT_FILTERING": rng.uniform(0.015, 0.045), "SSAI_BEACON_LOSS": rng.uniform(0.015, 0.04),
-                    "GENUINE_BILLING_ERROR": rng.uniform(0.12, 0.25)}[c2]
-
-print(pd.Series(np.array(CAUSES)[dm_cause[active]]).value_counts().to_string())
-print(f"deal-months with a secondary cause: {(dm_cause2[active] >= 0).sum()}")
+    if dsp_tz[d_dsp[i]] != "UTC" and rng.random() < 0.7:  # US-time partners get it right some months
+        cause[k], tz_month[k] = C["TIMEZONE_SHIFT"], True
+    else:
+        w = dsp_offender[d_dsp[i]]
+        p = np.array([0, 0, 0.12 * w * (0.5 + 0.5 * deals.ivt_risk_score[i] / 0.14), 0.07 * w, 0.07 * w])
+        p[0] = max(0.3, 1 - p.sum())
+        cause[k] = rng.choice(5, p=p / p.sum())
+    c = CAUSES[cause[k]]
+    param[k] = {"IVT_FILTERING": np.clip(deals.ivt_risk_score[i] * rng.uniform(0.3, 0.6) + 0.04 + rng.normal(0, 0.015), 0.04, 0.16),
+                "LATE_OR_MISSING_DATA": rng.integers(2, 7),       # days missing from the report
+                "GENUINE_BILLING_ERROR": rng.uniform(0.35, 0.6)}.get(c, 0.0)  # share of days under-reported
+    if c != "TIMEZONE_SHIFT" and rng.random() < (0.3 if c != "WITHIN_TOLERANCE" else 0.08):
+        cause2[k] = C["IVT_FILTERING"] if c != "IVT_FILTERING" else C["GENUINE_BILLING_ERROR"]
+        param2[k] = rng.uniform(0.015, 0.045) if cause2[k] == C["IVT_FILTERING"] else rng.uniform(0.12, 0.25)
+print(pd.Series(np.array(CAUSES)[cause[active]]).value_counts().to_string())
 
 # COMMAND ----------
 
-# MAGIC %md ## Build DSP-side counts from ground truth + planted distortions
+# MAGIC %md ## What each DSP reports
 
 # COMMAND ----------
 
-row_cause = dm_cause[dm_key]
-row_param = dm_param[dm_key]
-nat = np.clip(rng.normal(0.015, 0.012, N_DEAL * N_DAYS), -0.02, 0.06)  # normal measurement noise per deal-day
 dd = deal_ix * N_DAYS + DAY[hour_ix]
-factor = 1 - nat[dd]
-ivt_day_noise = rng.normal(1, 0.3, N_DEAL * N_DAYS)  # IVT sweeps vary day to day
-bad_day = rng.random(N_DEAL * N_DAYS)
-bad_mult = rng.uniform(0.55, 0.85, N_DEAL * N_DAYS)
-
-for cause_arr, param_arr in [(dm_cause, dm_param), (dm_cause2, dm_param2)]:
-    rc, rp = cause_arr[dm_key], param_arr[dm_key]
+factor = 1 - np.clip(rng.normal(0.015, 0.012, N_DEAL * N_DAYS), -0.02, 0.06)[dd]  # normal measurement noise
+ivt_noise = np.clip(rng.normal(1, 0.3, N_DEAL * N_DAYS), 0, None)
+bad_day, bad_mult = rng.random(N_DEAL * N_DAYS), rng.uniform(0.55, 0.85, N_DEAL * N_DAYS)
+for ca, pa in [(cause, param), (cause2, param2)]:
+    rc, rp = ca[dm_key], pa[dm_key]
     m = rc == C["IVT_FILTERING"]
-    factor[m] *= 1 - rp[m] * np.clip(ivt_day_noise[dd[m]], 0, None)
-    m = rc == C["SSAI_BEACON_LOSS"]
-    load = CURVE01[d_genre[deal_ix[m]], LH_ET[hour_ix[m]]]
-    factor[m] *= 1 - rp[m] * (0.7 + 0.6 * load) * np.where(d_live[deal_ix[m]], 1.15, 1.0)
+    factor[m] *= 1 - rp[m] * ivt_noise[dd[m]]
     m = rc == C["GENUINE_BILLING_ERROR"]
     factor[m] *= np.where(bad_day[dd[m]] < rp[m], bad_mult[dd[m]], 1.0)
+dsp_imps = np.round(imps * factor).astype(np.int64)
 
-dsp_imps = np.round(imps * np.clip(factor, 0, None)).astype(np.int64)
-dsp_rev = dsp_imps * cpm_row / 1000
-rep_deal = deal_ix.copy()
+# US-time partners bucket hours into their local day in the months they get it wrong
+tz = np.where(tz_month[dm_key], dsp_tz[d_dsp[deal_ix]], "UTC")
+local_day = np.select([tz == "America/New_York", tz == "America/Los_Angeles"],
+                      [LOCAL_DAY["America/New_York"][hour_ix], LOCAL_DAY["America/Los_Angeles"][hour_ix]],
+                      LOCAL_DAY["UTC"][hour_ix])
+rep = pd.DataFrame({"deal": deal_ix, "day": local_day, "imps": dsp_imps, "spend": dsp_imps * (rev / imps)})
+rep = rep[rep.day >= 0].groupby(["deal", "day"], as_index=False).sum()
 
-# deal-ID mis-mapping: part of the source deal's delivery is booked under the sibling deal
-m = (row_cause == C["DEAL_ID_MISMAPPING"]) & (dm_partner[dm_key] >= 0)
-moved = np.round(dsp_imps[m] * row_param[m]).astype(np.int64)
-moved_rev = moved * cpm_row[m] / 1000
-dsp_imps[m] -= moved
-dsp_rev[m] -= moved_rev
-extra = (dm_partner[dm_key][m], hour_ix[m], moved, moved_rev, deal_ix[m])
-
-all_src = np.concatenate([deal_ix, extra[4]])  # deal that actually delivered (for FX/tz lookup)
-all_rep = np.concatenate([rep_deal, extra[0]])
-all_hour = np.concatenate([hour_ix, extra[1]])
-all_imps = np.concatenate([dsp_imps, extra[2]])
-all_rev = np.concatenate([dsp_rev, extra[3]])
-
-tz_code = pd.Series(deal_dsp_tz[all_rep]).map({t: i for i, t in enumerate(TZS)}).to_numpy()
-tz_code = np.where(dm_tz[all_rep * N_MON + MON[all_hour]], tz_code, 0)  # UTC in months the partner reported correctly
-local_day = LOCAL_DAY[tz_code, all_hour]
-fx_delta = np.where(dm_cause[all_src * N_MON + MON[all_hour]] == C["FX_MISMATCH"], dm_param[all_src * N_MON + MON[all_hour]], 0.0)
-
-dsp_hourly = pd.DataFrame({"deal": all_rep, "local_day": local_day, "imps": all_imps, "rev_usd": all_rev, "fx_delta": fx_delta})
-dsp_hourly = dsp_hourly[(dsp_hourly.local_day >= 0)]
-dsp_daily = dsp_hourly.groupby(["deal", "local_day"], as_index=False).agg(
-    imps=("imps", "sum"), rev_usd=("rev_usd", "sum"), fx_delta=("fx_delta", "max"))
-
-# missing days: rows for k random days in the month never arrive
-miss = []
-for k in [k for k in active if dm_cause[k] == C["LATE_OR_MISSING_DATA"]]:
+missing = set()
+for k in active[cause[active] == C["LATE_OR_MISSING_DATA"]]:
     i, mo = k // N_MON, k % N_MON
-    days = np.flatnonzero((DATES.month - 1) == mo)
-    days = days[(days >= d_start[i]) & (days <= d_end[i])]
-    if len(days):
-        for d in rng.choice(days, min(int(dm_param[k]), len(days)), replace=False):
-            miss.append((i, d))
-miss = pd.DataFrame(miss, columns=["deal", "local_day"]).assign(_drop=True)
-dsp_daily = dsp_daily.merge(miss, how="left", on=["deal", "local_day"])
-dsp_daily = dsp_daily[dsp_daily._drop.isna()].drop(columns="_drop")
-
-cur = deal_cur[dsp_daily.deal.to_numpy()]
-true_rate = np.select([cur == "EUR", cur == "GBP"], [FX["EUR"][dsp_daily.local_day], FX["GBP"][dsp_daily.local_day]], 1.0)
-dsp_daily["native_amount"] = dsp_daily.rev_usd / (true_rate * (1 + dsp_daily.fx_delta))
-dsp_daily["currency"] = cur
-dsp_daily["dsp"] = d_dsp[dsp_daily.deal.to_numpy()]
-print(f"{len(dsp_daily):,} DSP daily report rows")
+    days = np.flatnonzero((DATES.month - 1 == mo) & (np.arange(N_DAYS) >= d_start[i]) & (np.arange(N_DAYS) <= d_end[i]))
+    missing |= {(i, d) for d in rng.choice(days, min(int(param[k]), len(days)), replace=False)}
+rep = rep[[(a, b) not in missing for a, b in zip(rep.deal, rep.day)]]
+rep["dsp"], rep["month"] = d_dsp[rep.deal], DATES.month.to_numpy()[rep.day]
+print(f"{len(rep):,} DSP report rows")
 
 # COMMAND ----------
 
-# MAGIC %md ## Write landing files
+# MAGIC %md ## Write the landing files
 
 # COMMAND ----------
 
-if os.path.exists(ROOT):
-    for sub in ["ssp_logs", "dsp_reports", "publisher_reports", "reference", "history"]:
-        shutil.rmtree(os.path.join(ROOT, sub), ignore_errors=True)
-
-ref = os.path.join(ROOT, "reference")
-os.makedirs(ref, exist_ok=True)
-# Partners' actual reporting timezone and IVT strictness are hidden behaviour, not reference data:
-# contracts say "UTC", and the model has to discover a shift from the data itself.
-dsps.drop(columns=["reporting_timezone", "ivt_vendor_strictness"]).to_csv(f"{ref}/dsps.csv", index=False)
-dsp_contracts.to_csv(f"{ref}/dsp_contracts.csv", index=False)
-publishers.drop(columns=["reporting_timezone"]).to_csv(f"{ref}/publishers.csv", index=False)
-pub_contracts.to_csv(f"{ref}/publisher_contracts.csv", index=False)
-deals.to_csv(f"{ref}/deals.csv", index=False)
-fx_rates.to_csv(f"{ref}/fx_rates.csv", index=False)
-
-# SSP logs: one gzip JSON-lines file per UTC day
-ssp = pd.DataFrame({
-    "event_hour_utc": HOURS.strftime("%Y-%m-%dT%H:00:00Z").to_numpy()[hour_ix],
-    "deal_id": deals.deal_id.to_numpy()[deal_ix],
-    "dsp_id": deals.dsp_id.to_numpy()[deal_ix],
-    "seat_id": dsps.seat_id.to_numpy()[d_dsp[deal_ix]],
-    "publisher_id": deals.publisher_id.to_numpy()[deal_ix],
-    "impressions": imps,
-    "gross_revenue_usd": rev.round(4),
-    "log_source": "auction-svc-us-east-1",
-})
-ssp["_day"] = DAY[hour_ix]
+for sub in ["ssp_logs", "dsp_reports", "publisher_reports", "reference", "history"]:
+    shutil.rmtree(os.path.join(ROOT, sub), ignore_errors=True)
 os.makedirs(f"{ROOT}/ssp_logs", exist_ok=True)
-for d, part in ssp.groupby("_day"):
-    part.drop(columns="_day").to_json(f"{ROOT}/ssp_logs/ssp_auction_log_{DATE_STR[d]}.json.gz",
-                                      orient="records", lines=True, compression="gzip")
 
-# DSP reports: three partner formats, one CSV per DSP per partner-local month, with injected DQ defects
-dq = {"null_deal_id": 0, "negative_impressions": 0, "bad_date": 0, "duplicate_rows": 0, "unknown_seat": 0}
-dsp_daily["month"] = (DATES.month.to_numpy()[dsp_daily.local_day]).astype(int)
-for (k, mo), part in dsp_daily.groupby(["dsp", "month"]):
-    fmt = dsp_schema[k]
-    dates = DATES[part.local_day.to_numpy()]
-    if fmt == "A":
-        out = pd.DataFrame({"report_date": dates.strftime("%Y-%m-%d"), "deal_id": deals.deal_id.to_numpy()[part.deal],
-                            "impressions": part.imps.to_numpy(), "spend_usd": part.native_amount.round(2).to_numpy()})
-        date_col, deal_col, imp_col, bad = "report_date", "deal_id", "impressions", "2026-02-30"
-    elif fmt == "B":
-        out = pd.DataFrame({"Date": dates.strftime("%m/%d/%Y"), "Deal ID": deals.deal_id.to_numpy()[part.deal],
-                            "Imps": part.imps.to_numpy(), "Media Cost": part.native_amount.round(2).to_numpy(),
-                            "Currency": part.currency.to_numpy()})
-        date_col, deal_col, imp_col, bad = "Date", "Deal ID", "Imps", "13/45/2026"
-    else:
-        out = pd.DataFrame({"day": dates.strftime("%Y%m%d"), "seat_id": dsps.seat_id[k],
-                            "deal_code": deals.dsp_deal_code.to_numpy()[part.deal],
-                            "impressions_served": part.imps.to_numpy(), "gross_spend": part.native_amount.round(2).to_numpy()})
-        date_col, deal_col, imp_col, bad = "day", "deal_code", "impressions_served", "20261341"
-        u = rng.random(len(out)) < 0.003
-        out.loc[u, "seat_id"] = "S-0000"
-        dq["unknown_seat"] += int(u.sum())
-    out = out.astype({deal_col: object, date_col: object})
-    for key, col, val, p in [("null_deal_id", deal_col, None, 0.004), ("negative_impressions", imp_col, None, 0.002),
-                             ("bad_date", date_col, bad, 0.002)]:
+ssp = pd.DataFrame({"event_hour_utc": HOURS.strftime("%Y-%m-%dT%H:00:00Z").to_numpy()[hour_ix],
+                    "deal_id": deals.deal_id.to_numpy()[deal_ix], "dsp_id": deals.dsp_id.to_numpy()[deal_ix],
+                    "impressions": imps, "gross_revenue_usd": rev.round(4)})
+for d, part in ssp.groupby(DAY[hour_ix]):
+    part.to_json(f"{ROOT}/ssp_logs/ssp_auction_log_{DATES[d]:%Y-%m-%d}.json.gz", orient="records", lines=True,
+                 compression="gzip")
+
+dq = {"missing_deal_id": 0, "negative_impressions": 0, "bad_date": 0, "duplicate_rows": 0}
+for (k, mo), part in rep.groupby(["dsp", "month"]):
+    out = pd.DataFrame({"report_date": DATES[part.day.to_numpy()].strftime("%Y-%m-%d"),
+                        "deal_id": deals.deal_id.to_numpy()[part.deal],
+                        "impressions": part.imps.to_numpy(), "spend_usd": part.spend.round(2).to_numpy()}).astype(object)
+    for key, p in [("missing_deal_id", 0.004), ("negative_impressions", 0.002), ("bad_date", 0.002)]:
         hit = rng.random(len(out)) < p
-        if key == "negative_impressions":
-            out.loc[hit, col] = -out.loc[hit, col]
-        else:
-            out.loc[hit, col] = val
         dq[key] += int(hit.sum())
+        if key == "missing_deal_id":
+            out.loc[hit, "deal_id"] = None
+        elif key == "negative_impressions":
+            out.loc[hit, "impressions"] = -out.loc[hit, "impressions"]
+        else:
+            out.loc[hit, "report_date"] = "2026-02-30"
     dup = out.sample(frac=0.003, random_state=int(rng.integers(10**9)))
     dq["duplicate_rows"] += len(dup)
-    out = pd.concat([out, dup]).sort_index(kind="stable")
     path = f"{ROOT}/dsp_reports/{dsps.dsp_id[k]}"
     os.makedirs(path, exist_ok=True)
-    out.to_csv(f"{path}/{dsps.dsp_id[k]}_billing_2026-{mo:02d}.csv", index=False)
-
-# Publisher ad server exports: publisher-local day, slightly lower counts, estimated payout
-pub_tz = publishers.reporting_timezone.map({t: i for i, t in enumerate(TZS)}).to_numpy()
-pi = d_pub[deal_ix]
-pub = pd.DataFrame({
-    "deal": deal_ix, "pub": pi, "local_day": LOCAL_DAY[pub_tz[pi], hour_ix],
-    "imps": np.round(imps * (1 - pub_count_loss[pi]) * rng.normal(1, 0.004, len(imps))).astype(np.int64),
-    "rev": rev * (1 - pub_count_loss[pi]) * pub_contracts.publisher_rev_share_pct.to_numpy()[pi] / 100,
-})
-pub = pub[pub.local_day >= 0].groupby(["pub", "deal", "local_day"], as_index=False)[["imps", "rev"]].sum()
-pub["month"] = DATES.month.to_numpy()[pub.local_day]
-for (p, mo), part in pub.groupby(["pub", "month"]):
-    out = pd.DataFrame({
-        "Date": DATES[part.local_day.to_numpy()].strftime("%Y-%m-%d"),
-        "Ad unit": f"{publishers.publisher_id[p]}/ctv_midroll",
-        "Programmatic deal ID": deals.deal_id.to_numpy()[part.deal],
-        "Ad server impressions": part.imps.to_numpy(),
-        "Estimated revenue ($)": part.rev.round(2).to_numpy(),
-    })
-    path = f"{ROOT}/publisher_reports/{publishers.publisher_id[p]}"
-    os.makedirs(path, exist_ok=True)
-    out.to_csv(f"{path}/{publishers.publisher_id[p]}_adserver_2026-{mo:02d}.csv", index=False)
-print("landing files written")
+    pd.concat([out, dup]).to_csv(f"{path}/{dsps.dsp_id[k]}_billing_2026-{mo:02d}.csv", index=False)
 
 # COMMAND ----------
 
-# MAGIC %md ## Historical dispute resolutions (Jan–Jun) and ground truth
+# MAGIC %md ## Dispute history (Jan–Jun, the ML labels) and ground truth
 
 # COMMAND ----------
 
 ssp_dm = pd.DataFrame({"k": dm_key, "ssp_impressions": imps, "ssp_revenue_usd": rev}).groupby("k").sum()
-dsp_daily["k"] = dsp_daily.deal * N_MON + (dsp_daily.month - 1)
-dsp_daily["dsp_revenue_usd"] = dsp_daily.native_amount * true_rate  # what silver will compute after FX
-dsp_dm = dsp_daily.rename(columns={"imps": "dsp_impressions"}).groupby("k")[["dsp_impressions", "dsp_revenue_usd"]].sum()
-gt = pd.DataFrame({"k": active})
-gt["deal_idx"], gt["month_idx"] = gt.k // N_MON, gt.k % N_MON
-gt = gt.join(ssp_dm, on="k").join(dsp_dm, on="k").fillna({"dsp_impressions": 0, "dsp_revenue_usd": 0})
-gt["root_cause"] = np.array(CAUSES)[dm_cause[gt.k]]
-gt["effect_param"] = dm_param[gt.k].round(4)
-gt["secondary_cause"] = np.where(dm_cause2[gt.k] >= 0, np.array(CAUSES)[np.maximum(dm_cause2[gt.k], 0)], None)
-partner = dm_partner[gt.k]
-gt["mismap_partner_deal_id"] = np.where(partner >= 0, deals.deal_id.to_numpy()[np.maximum(partner, 0)],
-                                        np.where(partner <= -2, deals.deal_id.to_numpy()[np.maximum(-partner - 2, 0)], None))
-gt["deal_id"] = deals.deal_id.to_numpy()[gt.deal_idx]
-gt["dsp_id"] = deals.dsp_id.to_numpy()[gt.deal_idx]
-gt["billing_month"] = [f"2026-{m + 1:02d}" for m in gt.month_idx]
+rep["k"] = rep.deal * N_MON + rep.month - 1
+dsp_dm = rep.groupby("k").agg(dsp_impressions=("imps", "sum"), dsp_revenue_usd=("spend", "sum"))
+gt = pd.DataFrame({"k": active}).join(ssp_dm, on="k").join(dsp_dm, on="k").fillna(0)
+gt["deal_id"] = deals.deal_id.to_numpy()[gt.k // N_MON]
+gt["dsp_id"] = deals.dsp_id.to_numpy()[gt.k // N_MON]
+gt["billing_month"] = [f"2026-{m + 1:02d}" for m in gt.k % N_MON]
+gt["root_cause"] = np.array(CAUSES)[cause[gt.k]]
+gt["secondary_cause"] = np.where(cause2[gt.k] >= 0, np.array(CAUSES)[np.maximum(cause2[gt.k], 0)], None)
 gt["revenue_gap_usd"] = (gt.ssp_revenue_usd - gt.dsp_revenue_usd).round(2)
 gt["revenue_gap_pct"] = (100 * gt.revenue_gap_usd / gt.ssp_revenue_usd).round(3)
 
-hist = gt[(gt.month_idx < HISTORY_MONTHS) & ((gt.root_cause != "WITHIN_TOLERANCE") | (rng.random(len(gt)) < 0.2))].copy()
-# Analysts record the wrong cause ~12% of the time, usually confusing look-alike causes.
-CONFUSABLE = {"IVT_FILTERING": ["SSAI_BEACON_LOSS", "GENUINE_BILLING_ERROR"],
-              "SSAI_BEACON_LOSS": ["IVT_FILTERING", "GENUINE_BILLING_ERROR"],
-              "GENUINE_BILLING_ERROR": ["IVT_FILTERING", "LATE_OR_MISSING_DATA", "SSAI_BEACON_LOSS"],
+is_hist = (gt.k % N_MON) < HISTORY_MONTHS
+hist = gt[is_hist & ((gt.root_cause != "WITHIN_TOLERANCE") | (rng.random(len(gt)) < 0.2))].copy()
+CONFUSABLE = {"IVT_FILTERING": ["GENUINE_BILLING_ERROR"], "GENUINE_BILLING_ERROR": ["IVT_FILTERING", "LATE_OR_MISSING_DATA"],
               "LATE_OR_MISSING_DATA": ["GENUINE_BILLING_ERROR"], "TIMEZONE_SHIFT": ["WITHIN_TOLERANCE"],
-              "WITHIN_TOLERANCE": ["TIMEZONE_SHIFT", "IVT_FILTERING"], "FX_MISMATCH": ["GENUINE_BILLING_ERROR"],
-              "DEAL_ID_MISMAPPING": ["GENUINE_BILLING_ERROR", "LATE_OR_MISSING_DATA"]}
-noisy = rng.random(len(hist)) < 0.12
+              "WITHIN_TOLERANCE": ["TIMEZONE_SHIFT", "IVT_FILTERING"]}
+noisy = rng.random(len(hist)) < 0.12  # analysts sometimes record a look-alike cause
 hist["resolved_root_cause"] = [rng.choice(CONFUSABLE[c]) if n else c for c, n in zip(hist.root_cause, noisy)]
-OUTCOME = {"WITHIN_TOLERANCE": ("NO_ADJUSTMENT", 0.0), "TIMEZONE_SHIFT": ("NO_ADJUSTMENT", 0.0),
-           "IVT_FILTERING": ("CREDIT_ISSUED", 0.0), "SSAI_BEACON_LOSS": ("PARTIAL_RECOVERY", 0.4),
-           "DEAL_ID_MISMAPPING": ("RECOVERED", 0.95), "FX_MISMATCH": ("RECOVERED", 0.9),
-           "LATE_OR_MISSING_DATA": ("RECOVERED", 0.9), "GENUINE_BILLING_ERROR": ("PARTIAL_RECOVERY", 0.6)}
-hist["resolution_outcome"] = hist.resolved_root_cause.map(lambda c: OUTCOME[c][0])
-hist["recovered_usd"] = (hist.revenue_gap_usd.clip(lower=0) * hist.resolved_root_cause.map(lambda c: OUTCOME[c][1])).round(2)
+RECOVERY = {"WITHIN_TOLERANCE": 0.0, "TIMEZONE_SHIFT": 0.0, "IVT_FILTERING": 0.0,
+            "LATE_OR_MISSING_DATA": 0.9, "GENUINE_BILLING_ERROR": 0.6}
+hist["recovered_usd"] = (hist.revenue_gap_usd.clip(lower=0) * hist.resolved_root_cause.map(RECOVERY)).round(2)
 hist["days_to_resolve"] = np.clip(rng.lognormal(np.log(19), 0.45, len(hist)), 2, 75).round().astype(int)
-hist["resolved_by"] = rng.choice([f"billing.analyst{i}@apexexchange.example" for i in range(1, 7)], len(hist))
 hist.insert(0, "case_id", [f"HC-{i:05d}" for i in range(1, len(hist) + 1)])
-os.makedirs(f"{ROOT}/history", exist_ok=True)
-hist[["case_id", "dsp_id", "deal_id", "billing_month", "ssp_impressions", "dsp_impressions", "ssp_revenue_usd",
-      "dsp_revenue_usd", "revenue_gap_usd", "revenue_gap_pct", "resolved_root_cause", "resolution_outcome",
-      "recovered_usd", "days_to_resolve", "resolved_by"]].round(2).to_csv(f"{ROOT}/history/dispute_resolutions.csv", index=False)
 
-gt_out = gt[["deal_id", "dsp_id", "billing_month", "root_cause", "secondary_cause", "effect_param", "mismap_partner_deal_id",
-             "ssp_impressions", "dsp_impressions", "ssp_revenue_usd", "dsp_revenue_usd", "revenue_gap_usd", "revenue_gap_pct"]].copy()
-gt_out["is_history"] = gt.month_idx < HISTORY_MONTHS
+hist_cols = ["case_id", "dsp_id", "deal_id", "billing_month", "ssp_revenue_usd", "dsp_revenue_usd", "revenue_gap_usd",
+             "resolved_root_cause", "recovered_usd", "days_to_resolve"]
+gt_cols = ["deal_id", "dsp_id", "billing_month", "root_cause", "secondary_cause", "ssp_impressions", "dsp_impressions",
+           "ssp_revenue_usd", "dsp_revenue_usd", "revenue_gap_usd", "revenue_gap_pct"]
+TABLES = {"silver.dsps": (dsps, "DSP partners and contract terms (discrepancy threshold, billing basis, payment terms)."),
+          "silver.deals": (deals, "CTV deals: DSP, publisher, deal type, content genre, live flag, publisher IVT risk score."),
+          "ml.dispute_history": (hist[hist_cols], "Jan-Jun 2026 disputes resolved by Billing Ops. resolved_root_cause is the ML label."),
+          "ml.ground_truth_root_causes": (gt[gt_cols], "Planted cause per deal-month from the generator. Evaluation only, never a feature.")}
 if ON_DATABRICKS:
-    spark.createDataFrame(gt_out).write.mode("overwrite").option("overwriteSchema", "true") \
-        .saveAsTable(f"{CATALOG}.ml.ground_truth_root_causes")
-    spark.sql(f"COMMENT ON TABLE {CATALOG}.ml.ground_truth_root_causes IS "
-              "'Planted root cause per deal-month from the synthetic generator. Evaluation only: never a model feature.'")
+    for name, (df, comment) in TABLES.items():
+        spark.createDataFrame(df).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{CATALOG}.{name}")
+        spark.sql(f"COMMENT ON TABLE {CATALOG}.{name} IS '{comment}'")
 else:
-    gt_out.to_csv(f"{ROOT}/_ground_truth.csv", index=False)
+    for name, (df, _) in TABLES.items():
+        df.to_csv(f"{ROOT}/{name}.csv", index=False)
 
 # COMMAND ----------
 
-# MAGIC %md ## Generation summary
-
-# COMMAND ----------
-
-
-def count_files(sub):
-    return sum(len(f) for _, _, f in os.walk(os.path.join(ROOT, sub)))
-
-
-cur_gt = gt[gt.month_idx >= HISTORY_MONTHS]
 summary = {
-    "seed": SEED,
-    "window": "2026-01-01..2026-09-30",
-    "entities": {"dsps": N_DSP, "ctv_publishers": N_PUB, "deals": N_DEAL},
-    "ssp_log_rows": int(len(ssp)),
-    "total_impressions": int(imps.sum()),
-    "gross_revenue_usd": round(float(rev.sum()), 2),
-    "dsp_report_rows": int(len(dsp_daily)),
-    "publisher_report_rows": int(len(pub)),
-    "files": {s: count_files(s) for s in ["ssp_logs", "dsp_reports", "publisher_reports", "reference", "history"]},
-    "dq_defects_injected": dq,
-    "deal_months": int(len(gt)),
-    "root_cause_distribution_all": gt.root_cause.value_counts().to_dict(),
-    "historical_dispute_cases": int(len(hist)),
-    "history_label_noise_rate": round(float(noisy.mean()), 3),
-    "deal_months_with_secondary_cause": int(gt.secondary_cause.notna().sum()),
-    "current_months_revenue_gap_usd_by_cause": cur_gt.groupby("root_cause").revenue_gap_usd.sum().round(0).to_dict(),
-    "median_abs_gap_pct_by_cause": gt.groupby("root_cause").revenue_gap_pct.apply(lambda s: s.abs().median()).round(2).to_dict(),
+    "ssp_log_rows": int(len(ssp)), "impressions": int(imps.sum()), "gross_revenue_usd": round(float(rev.sum()), 2),
+    "dsp_report_rows": int(len(rep)), "dsp_report_files": int(rep.groupby(["dsp", "month"]).ngroups),
+    "bad_rows_injected": dq, "deal_months": int(len(gt)),
+    "root_causes": gt.root_cause.value_counts().to_dict(),
+    "with_secondary_cause": int(gt.secondary_cause.notna().sum()),
+    "history_cases": int(len(hist)), "history_label_noise": round(float(noisy.mean()), 3),
 }
 print(json.dumps(summary, indent=2))
-
-# COMMAND ----------
-
 if ON_DATABRICKS:
     dbutils.notebook.exit(json.dumps(summary))

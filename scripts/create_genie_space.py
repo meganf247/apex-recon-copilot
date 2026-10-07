@@ -9,9 +9,8 @@ import subprocess
 import uuid
 
 C = "apex_recon"
-TABLES = [f"{C}.gold.case_workbench", f"{C}.gold.dispute_queue", f"{C}.gold.publisher_recon_month",
-          f"{C}.gold.recon_deal_month", f"{C}.gold.recon_partner_month", f"{C}.ops.dispute_case_status",
-          f"{C}.silver.dim_deals", f"{C}.silver.dim_dsps", f"{C}.silver.dim_publishers"]
+TABLES = [f"{C}.gold.dispute_queue", f"{C}.gold.recon_deal_month", f"{C}.gold.recon_partner_month",
+          f"{C}.ops.dispute_case_status", f"{C}.silver.deals", f"{C}.silver.dsps"]
 
 INSTRUCTIONS = """You answer questions for Apex Exchange's Finance and Billing Operations teams about CTV revenue reconciliation.
 Business context: Apex Exchange is a CTV sell-side platform (SSP). DSPs pay Apex for impressions; Apex pays publishers their revenue share and keeps the rest (take rate).
@@ -23,7 +22,7 @@ Definitions:
 - A partner or deal is "over threshold" when abs(revenue_gap_pct) > discrepancy_threshold_pct (the contract tolerance).
 - needs_review = over threshold OR at least 30% of days with a daily gap over 7.5%.
 - billing_month is a 'yyyy-MM' string. "This quarter" / "Q3" means billing_month IN ('2026-07','2026-08','2026-09'). The latest close is '2026-09'.
-- Root causes (predicted_root_cause / confirmed_root_cause): WITHIN_TOLERANCE, TIMEZONE_SHIFT, IVT_FILTERING, SSAI_BEACON_LOSS, DEAL_ID_MISMAPPING, FX_MISMATCH, LATE_OR_MISSING_DATA, GENUINE_BILLING_ERROR. Present them in plain words (e.g. "SSAI beacon loss").
+- Root causes (predicted_root_cause / confirmed_root_cause): WITHIN_TOLERANCE, TIMEZONE_SHIFT, IVT_FILTERING, LATE_OR_MISSING_DATA, GENUINE_BILLING_ERROR. Present them in plain words (e.g. "missing data").
 - Dispute workflow status lives in ops.dispute_case_status (OPEN, IN_REVIEW, SENT_TO_PARTNER, RESOLVED). A case with no row there is OPEN.
 - Prefer gold.recon_partner_month for partner-level questions, gold.recon_deal_month for deal-level questions, gold.dispute_queue for open cases and model root causes.
 Counting: when asked "how many" partners/deals meet a condition across several months, return ONE row with the count (aggregate per entity in a subquery, then count).
@@ -33,9 +32,8 @@ QUESTIONS = [
     "What's our total revenue at risk by DSP for the September close?",
     "Which DSPs were over threshold in all three months of Q3?",
     "How much revenue at risk did timezone issues cause in Q3?",
-    "What's the discrepancy rate on live sports vs VOD, by SSAI vendor, this quarter?",
+    "Which content genre has the most revenue at risk this quarter, live vs on-demand?",
     "How many disputes are still open and how much money do they cover?",
-    "What take rate did we earn by publisher type in September?",
 ]
 
 EXAMPLES = [
@@ -90,6 +88,8 @@ if __name__ == "__main__":
             "description": "Ask about DSP billing discrepancies, revenue at risk, root causes and dispute status for Apex Exchange's CTV business.",
             "warehouse_id": a.warehouse, "serialized_space": serialized()}
     method, path = ("patch", f"/api/2.0/genie/spaces/{a.space_id}") if a.space_id else ("post", "/api/2.0/genie/spaces")
+    if a.space_id:  # updates only change the content; renaming can collide with another space's title
+        body = {"serialized_space": body["serialized_space"], "warehouse_id": body["warehouse_id"]}
     out = subprocess.run(["databricks", "api", method, path, "-p", a.profile, "--json", json.dumps(body)],
                          capture_output=True, text=True)
     if out.returncode != 0:

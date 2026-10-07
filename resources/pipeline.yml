@@ -11,8 +11,4 @@ resources:
         apex.catalog: ${var.catalog}
       libraries:
         - file:
-            path: ../src/pipeline/bronze.py
-        - file:
-            path: ../src/pipeline/silver.py
-        - file:
-            path: ../src/pipeline/gold.py
+            path: ../src/02_pipeline.py
