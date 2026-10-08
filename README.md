@@ -53,13 +53,13 @@ Genie space ◄── gold + ops.dispute_case_status            App ◄── UC
 | Stage | Databricks | In this build | Evidence |
 |---|---|---|---|
 | **Ingest** | Lakeflow Spark Declarative Pipelines + Auto Loader | 273 SSP log files and 360 DSP report files land in a UC Volume; the pipeline goes bronze → silver → gold in 6 tables with 3 joins. 4 data-quality rules (missing deal ID, bad date, negative impressions, duplicate row) drop bad DSP rows and record the counts. | [`02_pipeline_evidence`](evidence/02_pipeline_evidence.md) |
-| **Govern** | Unity Catalog | Row filter (partner managers see only their team's DSPs) and column masks (dollar amounts for Finance only), driven by an access table; tags; table comments; automatic lineage. | [`05_governance_demo`](evidence/05_governance_demo.md), [`09_lineage`](evidence/09_lineage.md) |
-| **ML** | MLflow + UC Model Registry | Gradient-boosted classifier predicts the root cause from how the daily gap behaves across the month (swing, missing days, big-gap days, publisher IVT risk…). Registered as `apex_recon.ml.discrepancy_root_cause@champion`. | [`01_build_job_run`](evidence/01_build_job_run.md) (`ml_and_disputes`) |
+| **Govern** | Unity Catalog | Row filter (partner managers see only their team's DSPs) and column masks (dollar amounts for Finance only), driven by an access table; tags; table comments; automatic lineage. | [`04_publish_check`](evidence/04_publish_check.md), [`05_governance_demo`](evidence/05_governance_demo.md), [`09_lineage`](evidence/09_lineage.md) |
+| **ML** | MLflow + UC Model Registry | Gradient-boosted classifier predicts the root cause from how the daily gap behaves across the month (swing, missing days, big-gap days, publisher IVT risk…). Registered as `apex_recon.ml.discrepancy_root_cause@champion`. | [`01_build_job_run`](evidence/01_build_job_run.md), [executed notebook](evidence/notebook_runs/03_ml_and_disputes.md) |
 | **GenAI** | `ai_query` + Foundation Model APIs | Claude Sonnet 4.6 drafts a case summary and partner dispute email for the top 250 cases from a JSON evidence pack, following each contract's billing basis. Every draft is checked: dollar figures must come from the evidence, the ask must fit the contract, plus an LLM judge on 30. | same |
 | **Operational serving** | Lakebase + Lakebase UC catalog | The case queue is synced into Lakebase; the app writes case status, an audit trail and credit approvals to `recon.*`. Lakebase is registered in UC as **`apex_recon_ops`**, so `ops.dispute_case_status` reads those tables **live**. | [`07_app_e2e_test`](evidence/07_app_e2e_test.md), [`08_lakebase_live_status`](evidence/08_lakebase_live_status.md) |
 | **Natural language** | Genie | "Apex Exchange · CTV Revenue Reconciliation", with business definitions, sample questions and certified example SQL, benchmarked against reference SQL. | [`06_genie_benchmark`](evidence/06_genie_benchmark.md) |
 | **Surface** | Databricks App (Streamlit) | **Reconciliation Workbench**: Close overview → Triage queue → Case detail (evidence, AI root cause, editable email, send / resolve / credit) → Ask Genie. | [`07_app_e2e_test`](evidence/07_app_e2e_test.md) |
-| **Orchestrate** | Lakeflow Jobs + Asset Bundle | One job, 4 steps: `generate_data` → `pipeline` → `ml_and_disputes` → `publish`. Everything deploys from `databricks.yml`. | [`01_build_job_run`](evidence/01_build_job_run.md) |
+| **Orchestrate** | Lakeflow Jobs + Asset Bundle | One job, 4 steps: `generate_data` → `pipeline` → `ml_and_disputes` → `publish`. Everything deploys from `databricks.yml`. | [`01_build_job_run`](evidence/01_build_job_run.md), [executed generator notebook](evidence/notebook_runs/01_generate_data.md) |
 
 ## Results (from the committed run output)
 
@@ -86,9 +86,9 @@ src/00_setup_uc.sql          One-time: schemas and landing volume
 src/00_setup_lakebase.sql    One-time: Lakebase case tables
 src/app_grants*.sql          App service principal grants (run by scripts/grant_app.sh)
 app/                         Streamlit Reconciliation Workbench
-scripts/                     run_sql, capture_job_run, create_genie_space, genie_benchmark, grant_app
+scripts/                     run_sql, capture_job_run, export_notebook_run, create_genie_space, genie_benchmark, grant_app
 tests/app_smoke_test.py      Headless end-to-end app test
-evidence/                    Text output from every stage (queries in evidence/sql)
+evidence/                    Text output from every stage (queries in evidence/sql; executed notebooks with cell outputs in evidence/notebook_runs)
 deck/                        Business presentation (PDF + markdown)
 RUNBOOK.md                   How to run and demo it
 ```

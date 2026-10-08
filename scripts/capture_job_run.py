@@ -38,6 +38,7 @@ if __name__ == "__main__":
     for t in run["tasks"]:
         dur = ((t.get("end_time") or 0) - (t.get("start_time") or 0)) / 60000
         md.append(f"| `{t['task_key']}` | {t['state'].get('result_state')} | {dur:.1f} |")
+    md += ["", "Each notebook task's full cell-by-cell output is in `evidence/notebook_runs/`."]
     for t in run["tasks"]:
         md += ["", f"## Task `{t['task_key']}`", ""]
         if "pipeline_task" in t:
@@ -45,6 +46,13 @@ if __name__ == "__main__":
             upd = cli(a.profile, "pipelines", "list-updates", info["pipeline_id"]).get("updates", [{}])[0]
             md += [f"Pipeline `{info['pipeline_id']}`, update `{upd.get('update_id')}` → **{upd.get('state')}**", "",
                    "Rows written and expectation results: see `evidence/02_pipeline_evidence.md`."]
+            continue
+        if "sql_task" in t:
+            md += [f"SQL file `{t['sql_task'].get('file', {}).get('path', '')}` ran on warehouse "
+                   f"`{t['sql_task'].get('warehouse_id')}` (SQL tasks return no notebook output).", "",
+                   "What it applied, queried after the run: `evidence/04_publish_check.md` (row filter, masks, tags, view); "
+                   "`evidence/05_governance_demo.md` (the filter and masks in action); "
+                   "`evidence/08_lakebase_live_status.md` (the live view over Lakebase)."]
             continue
         out = cli(a.profile, "jobs", "get-run-output", str(t["run_id"]))
         result = out.get("notebook_output", {}).get("result")

@@ -56,7 +56,7 @@ Open https://apex-recon-workbench-7474649371849429.aws.databricksapps.com and si
 1. **Close overview:** pick **2026-09**. You'll see Apex vs DSP-reported revenue, revenue at risk, cases open and
    recovered-to-date, plus revenue at risk by DSP and by root cause.
 2. **Triage queue:** cases sorted by dollars at risk, with the model's root cause and confidence. Click a row.
-3. **Case detail:** the daily Apex-vs-DSP chart, evidence tiles (missing days, timezone shift, sibling-deal match),
+3. **Case detail:** the daily Apex-vs-DSP chart, evidence tiles (days missing in the DSP report, days with a big gap, day-to-day swing, publisher IVT risk),
    the AI case summary, and the editable dispute email.
    - **Send to partner** marks the case sent and logs it.
    - **Resolve case** records the resolution, confirmed root cause and recovered or credited amount.
@@ -79,7 +79,7 @@ If the app shows "Stopped", start it from **Compute → Apps → apex-recon-work
 
 | To show | Go to |
 |---|---|
-| Raw partner files (3 DSP layouts, SSP logs, publisher exports) | Catalog → `apex_recon` → `landing` → volume `raw` |
+| Raw files (hourly SSP logs, daily DSP reports, one folder per DSP) | Catalog → `apex_recon` → `landing` → volume `raw` |
 | Pipeline graph and data-quality results | Jobs & Pipelines → `apex-recon-pipeline` → latest update → click `silver.dsp_daily` for the 4 rules' pass/fail counts |
 | The 3 joins | `src/02_pipeline.py`, function `recon_deal_month` |
 | Reconciliation results | `apex_recon.gold.recon_partner_month`, `recon_deal_month`, `dispute_queue` |
@@ -126,8 +126,12 @@ cd ~/apex-recon-copilot
 # job run summary (use the run ID from the job page or the bundle run output)
 python3 scripts/capture_job_run.py <run_id> evidence/01_build_job_run.md
 
+# executed notebooks, every cell with its output (task run IDs: databricks jobs get-run <run_id> -p megan-fevm2)
+python3 scripts/export_notebook_run.py <generate_data_task_run_id> evidence/notebook_runs/01_generate_data --job-run <run_id>
+python3 scripts/export_notebook_run.py <ml_and_disputes_task_run_id> evidence/notebook_runs/03_ml_and_disputes --job-run <run_id>
+
 # SQL evidence
-for f in 02_pipeline_evidence 05_governance_demo 08_lakebase_live_status 09_lineage 10_business_impact; do
+for f in 02_pipeline_evidence 04_publish_check 05_governance_demo 08_lakebase_live_status 09_lineage 10_business_impact; do
   python3 scripts/run_sql.py evidence/sql/$f.sql > evidence/$f.md
 done
 

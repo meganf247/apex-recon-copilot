@@ -13,6 +13,8 @@
 | `pipeline` | SUCCESS | 1.4 |
 | `publish` | SUCCESS | 0.3 |
 
+Each notebook task's full cell-by-cell output is in `evidence/notebook_runs/`.
+
 ## Task `ml_and_disputes`
 
 ```json
@@ -120,3 +122,6 @@ Rows written and expectation results: see `evidence/02_pipeline_evidence.md`.
 
 ## Task `publish`
 
+SQL file `/Workspace/Users/megan.fogal@databricks.com/apex-recon-copilot/src/04_publish.sql` ran on warehouse `93d767746e247a90` (SQL tasks return no notebook output).
+
+What it applied, queried after the run: `evidence/04_publish_check.md` (row filter, masks, tags, view); `evidence/05_governance_demo.md` (the filter and masks in action); `evidence/08_lakebase_live_status.md` (the live view over Lakebase).

@@ -1,6 +1,6 @@
 
 ```sql
-COMMENT ON CATALOG apex_recon IS 'Apex Exchange (fictional CTV SSP) revenue reconciliation: SSP logs vs DSP billing reports vs publisher ad server reports. Synthetic data.'
+COMMENT ON CATALOG apex_recon IS 'Apex Exchange (fictional CTV SSP) revenue reconciliation: SSP auction logs vs DSP billing reports. Synthetic data.'
 ```
   -> OK
 
@@ -15,7 +15,7 @@ CREATE SCHEMA IF NOT EXISTS apex_recon.bronze  COMMENT 'Raw ingested records, on
   -> OK
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS apex_recon.silver  COMMENT 'Cleaned, normalized records: UTC dates, USD amounts, canonical deal IDs.'
+CREATE SCHEMA IF NOT EXISTS apex_recon.silver  COMMENT 'Cleaned daily records (bad rows dropped by data-quality rules) plus deal and DSP reference tables.'
 ```
   -> OK
 
@@ -30,12 +30,22 @@ CREATE SCHEMA IF NOT EXISTS apex_recon.ml      COMMENT 'ML features, predictions
   -> OK
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS apex_recon.ops     COMMENT 'Operational reference data (partner team assignments) and governance helpers.'
+CREATE SCHEMA IF NOT EXISTS apex_recon.ops     COMMENT 'Governance (access table, row filter and mask functions) and the live case-status view over Lakebase.'
 ```
   -> OK
 
 ```sql
 CREATE VOLUME IF NOT EXISTS apex_recon.landing.raw
-  COMMENT 'Landing zone: ssp_logs (JSON.gz, hourly UTC), dsp_reports (CSV, 3 partner formats), publisher_reports (CSV, ad server exports), reference, history.'
+  COMMENT 'Landing zone: ssp_logs (JSON.gz, hourly UTC) and dsp_reports/<dsp> (CSV, daily).'
+```
+  -> OK
+
+```sql
+COMMENT ON VOLUME apex_recon.landing.raw IS 'Landing zone: ssp_logs (JSON.gz, hourly UTC) and dsp_reports/<dsp> (CSV, daily).'
+```
+  -> OK
+
+```sql
+CREATE SCHEMA IF NOT EXISTS apex_recon.serving COMMENT 'Lakebase synced tables: gold data served to the Reconciliation Workbench app from Postgres.'
 ```
   -> OK

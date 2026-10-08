@@ -4,15 +4,15 @@ SELECT origin.flow_name AS dataset,
        max(details:flow_progress.metrics.num_output_rows::BIGINT) AS output_rows,
        max(details:flow_progress.data_quality.dropped_records::BIGINT) AS dropped_by_expectations
 FROM event_log('7e5bc896-605c-44f6-a2e3-039922e893a9')
-WHERE event_type = 'flow_progress' AND details:flow_progress.status = 'COMPLETED'
+WHERE event_type = 'flow_progress' AND origin.flow_name LIKE 'apex_recon.%'
   AND origin.update_id = (SELECT origin.update_id FROM event_log('7e5bc896-605c-44f6-a2e3-039922e893a9')
                           WHERE event_type = 'create_update' ORDER BY timestamp DESC LIMIT 1)
 GROUP BY 1 ORDER BY 1
 ```
 | dataset | output_rows | dropped_by_expectations |
 |---|---|---|
-| apex_recon.bronze.dsp_reports |  |  |
-| apex_recon.bronze.ssp_logs |  |  |
+| apex_recon.bronze.dsp_reports | 158723 | 0 |
+| apex_recon.bronze.ssp_logs | 3565876 | 0 |
 | apex_recon.gold.recon_deal_month | 5562 | 0 |
 | apex_recon.gold.recon_partner_month | 360 | 0 |
 | apex_recon.silver.dsp_daily | 156995 | 1728 |
