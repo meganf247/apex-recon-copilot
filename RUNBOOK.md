@@ -107,7 +107,7 @@ then query `apex_recon.gold.dispute_queue`. Restore with `SET partner_team = '*'
 | I want to… | Do this |
 |---|---|
 | Change code and redeploy | Edit files in `~/apex-recon-copilot`, then `databricks bundle deploy -p megan-fevm2` (then rerun the job) |
-| Change data volume, causes or noise | Edit `src/01_generate_data.py`; test locally with `python3 src/01_generate_data.py` (writes to `/tmp/apex_raw`), then deploy and rerun the job |
+| Change data volume, causes or noise | Edit `src/01_generate_data.ipynb`, then deploy and rerun the job |
 | Change the pipeline | Edit `src/02_pipeline.py`, deploy, rerun the job |
 | Change Genie instructions or example SQL | Edit `scripts/create_genie_space.py`, then `python3 scripts/create_genie_space.py --space-id 01f1c1a695ce1f47baa2f07ef9f73663` |
 | Reset the app's cases | In the Lakebase SQL editor (`apex-recon-lb` → `databricks_postgres`): `TRUNCATE recon.credit_approvals, recon.case_events, recon.dispute_cases RESTART IDENTITY;` |
@@ -158,7 +158,7 @@ cd deck && pandoc apex_recon_deck.md -s --metadata pagetitle="Apex Exchange" -c 
 | App errors on the queue or a case | Check the synced table: `databricks postgres get-synced-table synced_tables/apex_recon.serving.case_workbench -p megan-fevm2` (should be `ONLINE`). The `ml_and_disputes` step refreshes it; its output says `Lakebase sync: refresh started` |
 | You changed the columns of `gold.case_workbench` | Delete and recreate the synced table (appendix step 5), then rerun `scripts/grant_app.sh` |
 | App can't write to Lakebase after recreating it | Rerun `scripts/grant_app.sh` (the app gets a new service principal) |
-| `ai_query` fails with "not supported for batch inference" | The model endpoint isn't enabled for batch; keep `databricks-claude-sonnet-4-6` in `src/03_ml_and_disputes.py` |
+| `ai_query` fails with "not supported for batch inference" | The model endpoint isn't enabled for batch; keep `databricks-claude-sonnet-4-6` in `src/03_ml_and_disputes.ipynb` |
 | Genie gives a wrong answer | Add an example query or instruction in `scripts/create_genie_space.py` and push it with `--space-id` |
 
 ---

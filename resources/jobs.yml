@@ -6,7 +6,7 @@ resources:
       tasks:
         - task_key: generate_data
           notebook_task:
-            notebook_path: ../src/01_generate_data.py
+            notebook_path: ../src/01_generate_data.ipynb
             base_parameters:
               catalog: ${var.catalog}
               seed: "42"
@@ -20,7 +20,7 @@ resources:
           depends_on:
             - task_key: pipeline
           notebook_task:
-            notebook_path: ../src/03_ml_and_disputes.py
+            notebook_path: ../src/03_ml_and_disputes.ipynb
             base_parameters:
               catalog: ${var.catalog}
         - task_key: publish

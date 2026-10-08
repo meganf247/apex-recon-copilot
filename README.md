@@ -4,7 +4,7 @@ An end-to-end Databricks build for a **CTV sell-side platform (SSP)**. It reconc
 against the billing reports of the DSPs who pay it, explains *why* each gap happened, drafts the partner dispute, and
 gives Billing Ops one app to resolve cases.
 
-> **Apex Exchange is fictional and all data is synthetic** (`src/01_generate_data.py`, seed 42). No customer data is used.
+> **Apex Exchange is fictional and all data is synthetic** (`src/01_generate_data.ipynb`, seed 42). No customer data is used.
 
 ## The customer problem
 
@@ -43,7 +43,7 @@ Lakeflow pipeline (src/02_pipeline.py), 6 tables, 3 joins:
   bronze.dsp_reports ─► silver.dsp_daily ──┘    (SSP ⋈ DSP, + deals, + DSPs)
                         4 data-quality rules
 
-ML + GenAI (src/03_ml_and_disputes.py) ─► ml.discrepancy_root_cause@champion ─► gold.dispute_queue ─► gold.dispute_drafts
+ML + GenAI (src/03_ml_and_disputes.ipynb) ─► ml.discrepancy_root_cause@champion ─► gold.dispute_queue ─► gold.dispute_drafts
                                                                            └─► gold.case_workbench ══sync══► Lakebase
 Publish (src/04_publish.sql) ─► row filter + revenue masks on the queue · live view ops.dispute_case_status over Lakebase
 
@@ -78,9 +78,9 @@ Genie space ◄── gold + ops.dispute_case_status            App ◄── UC
 
 ```
 databricks.yml, resources/   Bundle: pipeline, 4-step job, app
-src/01_generate_data.py      Synthetic data, reference tables, dispute history (runs locally or on serverless)
+src/01_generate_data.ipynb   Synthetic data, reference tables, dispute history
 src/02_pipeline.py           Lakeflow pipeline: bronze → silver → gold (6 tables, 3 joins)
-src/03_ml_and_disputes.py    Features, model, work queue, ai_query drafts and checks, Lakebase refresh
+src/03_ml_and_disputes.ipynb Features, model, work queue, ai_query drafts and checks, Lakebase refresh
 src/04_publish.sql           Governance (row filter, masks, tags) + live case-status view over Lakebase
 src/00_setup_uc.sql          One-time: schemas and landing volume
 src/00_setup_lakebase.sql    One-time: Lakebase case tables
