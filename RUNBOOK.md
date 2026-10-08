@@ -9,7 +9,8 @@ The one-time setup is listed at the end for reference.
 |---|---|
 | Workspace | https://fevm-megant-fevm.cloud.databricks.com |
 | CLI profile on your laptop | `megan-fevm2` |
-| Repo on your laptop | `~/apex-recon-copilot` (GitHub: `megan-fogal_data/apex-recon-copilot`) |
+| Repo on your laptop | `~/apex-recon-copilot` (GitHub: `meganf247/apex-recon-copilot`, private) |
+| Git folder in the workspace | `/Workspace/Users/megan.fogal@databricks.com/apex-recon-copilot-git`: run the notebooks here and commit with their outputs |
 | Notebooks and code in the workspace | `/Workspace/Users/megan.fogal@databricks.com/apex-recon-copilot/src/` |
 | Build job | **Jobs & Pipelines → `[dev megan_fogal] apex-recon-build`** (job ID `800507315624085`) |
 | Lakeflow pipeline | `[dev megan_fogal] apex-recon-pipeline` (`7e5bc896-605c-44f6-a2e3-039922e893a9`) |
