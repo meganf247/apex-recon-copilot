@@ -142,10 +142,11 @@ cd scripts && python3 genie_benchmark.py 01f1c1a695ce1f47baa2f07ef9f73663 ../evi
 # app end-to-end test (writes one real case to Lakebase); needs the local venv in ~/apex-recon-copilot/.venv
 DATABRICKS_CONFIG_PROFILE=megan-fevm2 LAKEBASE_USER=megan.fogal@databricks.com .venv/bin/python tests/app_smoke_test.py
 ```
-Then update any changed numbers in `README.md` and `deck/apex_recon_deck.md`, re-render the deck PDF, commit and push:
+Then update any changed numbers in `README.md`, `deck/build_deck.py` and its text version `deck/apex_recon_deck.md`,
+rebuild the deck, commit and push:
 ```bash
-cd deck && pandoc apex_recon_deck.md -s --metadata pagetitle="Apex Exchange" -c deck.css -o apex_recon_deck.html \
-  && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --print-to-pdf=apex_recon_deck.pdf "file://$PWD/apex_recon_deck.html" && cd ..
+pip install python-pptx && python3 deck/build_deck.py      # writes deck/apex_recon_deck.pptx
+soffice --headless --convert-to pdf --outdir deck deck/apex_recon_deck.pptx   # or open it in PowerPoint/Keynote and export PDF
 ```
 
 ---

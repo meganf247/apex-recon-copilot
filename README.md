@@ -101,7 +101,7 @@ scripts/                     run_sql, capture_job_run, export_notebook_run, crea
                              create_synced_table, grant_app
 tests/app_smoke_test.py      Headless end-to-end app test
 evidence/                    Text output from every stage (queries in evidence/sql; executed notebooks with cell outputs in evidence/notebook_runs)
-deck/                        Business presentation (PDF + markdown)
+deck/                        Business presentation: PowerPoint + PDF built by deck/build_deck.py, text version in markdown
 RUNBOOK.md                   How to run and demo it
 ```
 
