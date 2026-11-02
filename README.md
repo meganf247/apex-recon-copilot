@@ -1,5 +1,11 @@
 # Apex Exchange · CTV Revenue Reconciliation Copilot
 
+> **Outcome.** Apex Exchange, a CTV sell-side platform, loses **$8.9M a quarter (14% of its net revenue)** to DSP
+> billing gaps, and each dispute takes 21 days. This copilot finds every gap the day a partner's file lands, names the
+> root cause (**92% right vs. 55%** for today's rules of thumb), drafts the dispute and tracks it to cash. Value:
+> **≈ $4.7M a year back to Apex's P&L**, ≈ $2.8M of cash released and ≈ 3 analysts' capacity, for **≈ $55K a year**
+> to run (~85×). Every number here comes from committed run output in [`evidence/`](evidence/).
+
 An end-to-end Databricks build for a **CTV sell-side platform (SSP)**. It reconciles the SSP's own auction logs
 against the billing reports of the DSPs who pay it, explains *why* each gap happened, drafts the partner dispute, and
 gives Billing Ops one app to resolve cases.
@@ -80,7 +86,7 @@ Genie space ◄── gold + ops.dispute_case_status            App ◄── UC
 | Reconciliation | September close: Apex $153.5M vs DSP-reported $144.6M; $8.9M billing shortfall, of which **$6.8M is revenue at risk in 219 cases** and **$3.3M is Apex's own exposure** |
 | Root-cause model | On the 715 Jul–Sep cases analysts actually work, against the true causes: **accuracy 92%, macro F1 0.91** vs 55% / 0.41 for the rules of thumb. Against Jan–Jun analyst labels (holdout): macro F1 0.85 vs 0.54. On all 2,025 Jul–Sep deal-months, most of them easy within-tolerance calls: 95% / 0.91 vs 82% / 0.58. The model scores higher on true causes than on analyst labels because it learns past the analysts' labelling mistakes. |
 | GenAI drafts | 250 drafts, 0 parse failures, 100% of dollar figures traced to the evidence, 100% consistent with the contract's billing basis, LLM judge 4.7 / 5.0 / 5.0 for accuracy, tone, actionability (n=30) |
-| Q3 work queue | 715 cases, $18.1M at risk, $8.9M Apex net exposure. **$6.3M recoverable** at Billing Ops' historical recovery rates, **$3.0M of it to Apex's P&L**. $8.5M (348 cases) is IVT or timezone, where the fix is a credit or a reporting change, not a chase. Publishers paid on Apex's count: 279 cases, $7.3M, all of it Apex's exposure. Publishers paid on cleared revenue: 436 cases, $10.8M, of which Apex's exposure is $1.6M. |
+| Q3 work queue | 715 cases, $18.1M at risk, $8.9M Apex net exposure. **$6.3M recoverable** at Billing Ops' historical recovery rates, **$3.0M of it to Apex's P&L**. $8.5M (348 cases) is IVT or timezone, where the fix is a credit or a reporting change, not a chase. Publishers paid on Apex's count: 279 cases, $7.3M, all of it Apex's exposure. Publishers paid on cleared revenue: 436 cases, $10.8M, of which Apex's exposure is $1.6M. ([`10_business_impact`](evidence/10_business_impact.md)) |
 | Genie | 14/14 finance questions match reference SQL |
 | App | End-to-end test passed: all pages render; an IVT case goes open → sent → resolved, crediting only the verified IVT and recovering the rest; rows land in Lakebase and show up live in UC |
 | Cost to run | ≈ $3.80 per full build run, ≈ $11/day for the always-on app, at list price from system billing tables ([`11_build_cost`](evidence/11_build_cost.md)) |
@@ -113,18 +119,50 @@ databricks bundle deploy -p <profile>
 databricks bundle run apex_recon_build -p <profile>
 ```
 
-## Design notes and limitations
+## Decisions and trade-offs
 
-- **Simple on purpose.** The pipeline is 6 tables with 3 joins; reference data and dispute history are written once
-  by the generator, and ML features live in the ML notebook rather than the pipeline.
-- **Synthetic data is cleaner than real life,** even with the secondary causes and label noise. The app records the
-  analyst's confirmed cause next to the model's, which becomes new training data in production.
-- **Take rates and publisher payment terms are synthetic too** (by deal type: PG ~11%, PMP ~14%, open ~18%; publishers
-  on guaranteed deals are mostly paid on Apex's count). They're the first thing to confirm in discovery, because they
-  decide how much of each gap is Apex's own loss.
-- **The model's scores are reproducible:** training rows are sorted before the train/test split, so a rerun gives the same numbers.
-- **Governance uses an access table** (`ops.recon_access`, keyed on `current_user()`) because account groups can't be
-  created in this FE workspace. In production it would be `is_account_group_member()` on IdP groups.
-- **The app runs as its service principal**, with Finance scope. Next step: on-behalf-of-user auth so the row filter
-  applies to each signed-in user.
-- `databricks-claude-sonnet-5-5` isn't enabled for `ai_query` batch inference in this workspace, so drafts use Sonnet 4.6.
+| Decision | Why | Trade-off / alternative considered |
+|---|---|---|
+| **Reconcile per deal × day, dispute per deal × month** | Matches how CTV contracts are billed and disputed; the daily shape of the gap is what tells the root causes apart | Impression-level matching would be more precise but far more costly, and contracts don't settle at that grain |
+| **Three measures: shortfall, revenue at risk, Apex net exposure** | The CFO's question is "what does this cost *Apex*?", not "how big is the gap?". Two gaps of the same size can differ 6× in P&L impact depending on publisher terms | Needs each deal's take rate and publisher payment terms. They're synthetic here and the first thing to confirm in discovery |
+| **Gradient-boosted classifier for root cause, not an LLM** | Tabular features, cheap to run on every deal-month, measurable (accuracy / F1), registered and versioned in MLflow | An LLM could classify from the evidence pack, but it costs more per call, is harder to evaluate and drifts with model updates. The LLM does the language part only |
+| **Train on analyst labels, evaluate on true causes, report the queue score** | Real labels are noisy (~11% wrong here), and most deal-months are easy within-tolerance calls | The headline is 92% on the 715 cases analysts work, not the flattering 95% on all deal-months. The pilot bar on real data is 85% |
+| **Batch `ai_query` drafts for the top 250 cases by dollars** | One SQL statement, governed in Unity Catalog, runs in the nightly job; drafts are ready when analysts arrive | No live drafting for the long tail of small cases yet; a real-time endpoint call from the app is the next step |
+| **Code checks plus an LLM judge on every draft run** | Deterministic checks catch what matters most (every dollar figure must appear in the evidence; the ask must fit the contract); the judge scores tone and clarity | The judge runs on a sample of 30, not all 250, to keep cost down |
+| **Lakebase for case state, not Delta write-back** | Case work is transactional: small row updates, an audit trail, foreign keys, fast reads for the app. Registered in Unity Catalog, so Finance and Genie see updates live with no copy job | One more component to operate. The queue syncs as a snapshot per run, and a schema change means recreating the synced table (`scripts/create_synced_table.sh`) |
+| **Governance policies declared in the pipeline** for the gold tables, applied in the publish step for the queue | Declared policies survive the pipeline's full refresh; the queue is rebuilt by the ML notebook, so the publish step re-applies its policies | Two places to maintain, both documented in `src/04_publish.sql` |
+| **Access table keyed on `current_user()`** | Account groups can't be created in this FE workspace | In production it would be `is_account_group_member()` on IdP groups. The app runs as its service principal with Finance scope; on-behalf-of-user auth is the next step |
+| **One bundle, one 4-step serverless job, full refresh** | Simple to deploy and reason about; a full run takes ~9 minutes and ≈ $3.80 | At production volume, bronze ingestion and gold would move to incremental processing |
+| **Synthetic data with mixed causes and label noise** | No customer data can be used; the generator plants five causes, a secondary cause on ~30% of problem cases, and wrong labels on ~11% of history | Still cleaner than real life. The app stores the analyst's confirmed cause next to the model's, which becomes new training data |
+| **Streamlit for the app** | Fast to build, Python end to end, deploys as a Databricks App | A production team might embed the queue in an existing billing or ticketing tool instead |
+
+Other notes: `databricks-claude-sonnet-5-5` isn't enabled for `ai_query` batch inference in this workspace, so drafts
+use Sonnet 4.6. Training rows are sorted before the train/test split, so model scores are reproducible across runs.
+
+## How AI was used to build this
+
+**Tools.** Claude Code built the whole thing: one session for the initial build and a second session for review and
+fixes. Both drove the Databricks CLI, the Python SDK and Asset Bundles against the live workspace. Session IDs are
+available on request.
+
+**Patterns that worked:**
+
+- **Requirements in, rubric review out.** The FE Bar requirements were given to the agent as the spec. A separate
+  review session was then asked to *grade the build against the same rubric* before fixing anything. That review
+  found real problems: an inflated accuracy claim (95% on all deal-months vs. 92% on the cases that matter), two
+  different definitions of "revenue at risk", gross spend presented as revenue, and governance on only one table.
+- **Evidence-first, so the AI can't claim what didn't run.** The agent wrote the evidence tooling
+  (`scripts/capture_job_run.py`, `export_notebook_run.py`, `run_sql.py`, `genie_benchmark.py`,
+  `tests/app_smoke_test.py`). Every number in this README and the deck comes from committed output of the same job run.
+- **Verify, don't trust.** Each change was checked by rerunning the real system: the full job, a headless test that
+  clicks through the app, a Genie benchmark against reference SQL, and SQL checks of the row filters and masks.
+- **Human in the loop for decisions.** The agent proposed and implemented; the builder chose the scenario, approved
+  each change and every push to this public repo, and made the calls on scope.
+
+**AI inside the product**, with the prompts in the repo:
+
+| Where | Prompt / config | Guardrail |
+|---|---|---|
+| Dispute drafting (Claude via `ai_query`) | `PROMPT` in `src/03_ml_and_disputes.ipynb`, section 4: evidence-only, exact figures, contract-aware ask, JSON output, temperature 0 | Code checks: every dollar figure must trace to the evidence; the ask must match the billing basis |
+| Draft quality judge (a second model) | Judge prompt in the same cell: accuracy, tone, actionability, each 1–5 | Different model family from the drafter, temperature 0 |
+| Genie | Instructions, definitions and certified example SQL in `scripts/create_genie_space.py` | Benchmarked 14/14 against independently written reference SQL (`scripts/genie_benchmark.py`) |
