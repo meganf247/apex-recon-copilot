@@ -132,11 +132,11 @@ python3 scripts/export_notebook_run.py <generate_data_task_run_id> evidence/note
 python3 scripts/export_notebook_run.py <ml_and_disputes_task_run_id> evidence/notebook_runs/03_ml_and_disputes --job-run <run_id>
 
 # SQL evidence
-for f in 02_pipeline_evidence 04_publish_check 05_governance_demo 08_lakebase_live_status 09_lineage 10_business_impact; do
+for f in 02_pipeline_evidence 04_publish_check 05_governance_demo 08_lakebase_live_status 09_lineage 10_business_impact 11_build_cost; do
   python3 scripts/run_sql.py evidence/sql/$f.sql > evidence/$f.md
 done
 
-# Genie benchmark (12 questions checked against reference SQL)
+# Genie benchmark (14 questions checked against reference SQL)
 cd scripts && python3 genie_benchmark.py 01f1c1a695ce1f47baa2f07ef9f73663 ../evidence/06_genie_benchmark.md && cd ..
 
 # app end-to-end test (writes one real case to Lakebase); needs the local venv in ~/apex-recon-copilot/.venv
@@ -157,7 +157,7 @@ cd deck && pandoc apex_recon_deck.md -s --metadata pagetitle="Apex Exchange" -c 
 | CLI says the token is invalid or expired | `databricks auth login --profile megan-fevm2` |
 | Pipeline fails: "Table … is already managed by pipeline …" | A table was created by a different pipeline. Drop the pipeline's 6 tables (`DROP TABLE` for the two bronze tables, `DROP MATERIALIZED VIEW` for the silver and gold ones) and rerun |
 | App errors on the queue or a case | Check the synced table: `databricks postgres get-synced-table synced_tables/apex_recon.serving.case_workbench -p megan-fevm2` (should be `ONLINE`). The `ml_and_disputes` step refreshes it; its output says `Lakebase sync: refresh started` |
-| You changed the columns of `gold.case_workbench` | Delete and recreate the synced table (appendix step 5), then rerun `scripts/grant_app.sh` |
+| You changed the columns of `gold.case_workbench` | `scripts/create_synced_table.sh megan-fevm2` (deletes and recreates the synced table), then rerun `scripts/grant_app.sh`. The sync gets a new pipeline ID: add it to `evidence/sql/11_build_cost.sql` |
 | App can't write to Lakebase after recreating it | Rerun `scripts/grant_app.sh` (the app gets a new service principal) |
 | `ai_query` fails with "not supported for batch inference" | The model endpoint isn't enabled for batch; keep `databricks-claude-sonnet-4-6` in `src/03_ml_and_disputes.ipynb` |
 | Genie gives a wrong answer | Add an example query or instruction in `scripts/create_genie_space.py` and push it with `--space-id` |
@@ -167,18 +167,14 @@ cd deck && pandoc apex_recon_deck.md -s --metadata pagetitle="Apex Exchange" -c 
 ## Appendix: one-time setup (already done)
 
 For reference only, in case you rebuild elsewhere:
-1. Catalog `apex_recon`, then `python3 scripts/run_sql.py src/00_setup_uc.sql` (schemas + volume).
+1. Catalog `apex_recon`, then `python3 scripts/run_sql.py src/00_setup_uc.sql` (schemas, volume, access table and
+   the row filter / mask functions, which the pipeline needs before its first run).
 2. Lakebase project `apex-recon-lb`, registered in Unity Catalog as `apex_recon_ops` (catalog type **Lakebase Postgres**,
    branch `production`, database `databricks_postgres`). Your Postgres role needs `DATABRICKS_SUPERUSER` membership to
    create tables (`databricks postgres update-role ... spec.membership_roles`).
 3. Case tables: `psql ... -f src/00_setup_lakebase.sql` against `databricks_postgres`.
 4. `databricks bundle deploy -p megan-fevm2`, then run the job once so `gold.case_workbench` exists.
-5. Synced table:
-   ```bash
-   databricks postgres create-synced-table apex_recon.serving.case_workbench -p megan-fevm2 --json '{"spec": {
-     "source_table_full_name": "apex_recon.gold.case_workbench", "primary_key_columns": ["case_id"],
-     "scheduling_policy": "SNAPSHOT", "branch": "projects/apex-recon-lb/branches/production",
-     "postgres_database": "databricks_postgres", "create_database_objects_if_missing": true}}'
-   ```
+5. Synced table: `scripts/create_synced_table.sh megan-fevm2` (creates `apex_recon.serving.case_workbench` from
+   `gold.case_workbench` and waits until it's online).
 6. Genie space: `python3 scripts/create_genie_space.py`; its ID goes in `resources/app.yml` and `tests/app_smoke_test.py`.
 7. App: `databricks bundle run recon_workbench -p megan-fevm2`, then `scripts/grant_app.sh`.

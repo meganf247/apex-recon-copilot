@@ -6,34 +6,15 @@
 --   * Row filter: Finance sees every partner; a partner manager sees only the DSPs their team owns.
 --   * Column mask: dollar amounts are Finance-confidential; everyone else sees NULL.
 --   * Both policies are driven by one access table keyed on the signed-in principal, so access changes are a
---     row update (auditable in table history) rather than a code change.
+--     row update (auditable in table history) rather than a code change. The access table and the two policy
+--     functions are created in src/00_setup_uc.sql, because the pipeline applies them too.
+--   * Where each table is governed:
+--       gold.recon_deal_month, gold.recon_partner_month  row filter + masks, declared in src/02_pipeline.py
+--       gold.dispute_queue                               row filter + masks, applied below (rebuilt by the ML notebook)
+--       gold.case_workbench, gold.dispute_drafts, ml.*   no filter: the Lakebase sync source, model inputs and
+--                                                         drafts. SELECT is granted only to Finance and the app's
+--                                                         service principal (src/app_grants.sql), never to partner managers.
 --   * Tags classify the sensitive objects; comments document every table for analysts and Genie.
-
-CREATE TABLE IF NOT EXISTS apex_recon.ops.recon_access (
-  principal        STRING  COMMENT 'User email or service principal application ID',
-  partner_team     STRING  COMMENT 'Partner team whose DSPs this principal may see (Atlantic, Pacific, Central, EMEA), or * for all',
-  can_see_revenue  BOOLEAN COMMENT 'TRUE for Finance: may see USD amounts; FALSE: USD columns are masked'
-) COMMENT 'Access entitlements for reconciliation data. Drives the partner row filter and the revenue column mask.';
-
--- Seed entitlements (idempotent; other principals such as the app service principal are added by their own grants file)
-MERGE INTO apex_recon.ops.recon_access t
-USING (SELECT 'megan.fogal@databricks.com' AS principal, '*' AS partner_team, TRUE AS can_see_revenue  -- Finance lead (build owner)
-       UNION ALL SELECT 'pm.atlantic@apexexchange.example', 'Atlantic', FALSE                          -- partner manager, Atlantic team
-       UNION ALL SELECT 'pm.emea@apexexchange.example', 'EMEA', FALSE) s                               -- partner manager, EMEA team
-ON t.principal = s.principal
-WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *;
-
-CREATE OR REPLACE FUNCTION apex_recon.ops.partner_access_filter(team STRING)
-RETURNS BOOLEAN
-COMMENT 'Row filter: a principal sees a row only if ops.recon_access grants them that partner team (or * for all teams).'
-RETURN EXISTS (SELECT 1 FROM apex_recon.ops.recon_access a
-               WHERE a.principal = current_user() AND (a.partner_team = '*' OR a.partner_team = team));
-
-CREATE OR REPLACE FUNCTION apex_recon.ops.finance_only_usd(amount DOUBLE)
-RETURNS DOUBLE
-COMMENT 'Column mask: USD amounts are visible only to principals with can_see_revenue in ops.recon_access; others see NULL.'
-RETURN CASE WHEN EXISTS (SELECT 1 FROM apex_recon.ops.recon_access a
-                         WHERE a.principal = current_user() AND a.can_see_revenue) THEN amount ELSE NULL END;
 
 -- Billing Ops work queue: row filter + revenue masks.
 ALTER TABLE apex_recon.gold.dispute_queue SET ROW FILTER apex_recon.ops.partner_access_filter ON (partner_team);
@@ -41,6 +22,7 @@ ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN ssp_revenue_usd     SET M
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN dsp_revenue_usd     SET MASK apex_recon.ops.finance_only_usd;
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_gap_usd     SET MASK apex_recon.ops.finance_only_usd;
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_at_risk_usd SET MASK apex_recon.ops.finance_only_usd;
+ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN apex_exposure_usd   SET MASK apex_recon.ops.finance_only_usd;
 
 -- Classification tags (domain uses the workspace's governed tag policy values)
 ALTER TABLE apex_recon.gold.dispute_queue          SET TAGS ('domain' = 'finance');
@@ -53,18 +35,22 @@ ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN ssp_revenue_usd     SET T
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN dsp_revenue_usd     SET TAGS ('sensitivity' = 'internal');
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_gap_usd     SET TAGS ('sensitivity' = 'internal');
 ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN revenue_at_risk_usd SET TAGS ('sensitivity' = 'internal');
+ALTER TABLE apex_recon.gold.dispute_queue ALTER COLUMN apex_exposure_usd   SET TAGS ('sensitivity' = 'internal');
 
 -- 2 · Live dispute workflow status, read straight from Lakebase through its Unity Catalog database catalog
 -- (apex_recon_ops = Lakebase project apex-recon-lb, branch production, database databricks_postgres).
 -- Analysts' actions in the app show up here, and in Genie, the moment they're committed. No copy job.
+-- Built on the governed gold.dispute_queue, so the row filter and revenue masks apply to whoever queries the view.
 
 CREATE OR REPLACE VIEW apex_recon.ops.dispute_case_status
-COMMENT 'Current dispute workflow status per case, live from Lakebase (apex_recon_ops.recon.*), joined to the open-case queue. Cases with no workbench activity are OPEN.'
+COMMENT 'Current dispute workflow status per case, live from Lakebase (apex_recon_ops.recon.*), joined to the open-case queue. Cases with no workbench activity are OPEN. Inherits the queue row filter and revenue masks.'
 AS SELECT q.case_id, q.billing_month, q.dsp_id, q.dsp_name, q.partner_team, q.deal_id,
           coalesce(c.status, 'OPEN') AS status, c.resolution, c.owner, c.confirmed_root_cause, q.predicted_root_cause,
-          q.revenue_at_risk_usd, coalesce(CAST(c.recovered_usd AS DOUBLE), 0) AS recovered_usd,
-          coalesce(a.credited_usd, 0) AS credited_usd, c.updated_at AS last_activity_at
-   FROM apex_recon.gold.case_workbench q
+          q.revenue_at_risk_usd, q.apex_exposure_usd,
+          CASE WHEN q.revenue_at_risk_usd IS NOT NULL THEN coalesce(CAST(c.recovered_usd AS DOUBLE), 0) END AS recovered_usd,
+          CASE WHEN q.revenue_at_risk_usd IS NOT NULL THEN coalesce(a.credited_usd, 0) END AS credited_usd,
+          c.updated_at AS last_activity_at
+   FROM apex_recon.gold.dispute_queue q
    LEFT JOIN apex_recon_ops.recon.dispute_cases c USING (case_id)
    LEFT JOIN (SELECT case_id, CAST(sum(amount_usd) AS DOUBLE) AS credited_usd
               FROM apex_recon_ops.recon.credit_approvals GROUP BY case_id) a USING (case_id);

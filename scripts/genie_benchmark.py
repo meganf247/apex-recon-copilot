@@ -38,6 +38,10 @@ BENCH = [
      f"SELECT count(*) FROM {C}.ops.dispute_case_status WHERE status = 'RESOLVED'"),
     ("How much money has been recovered from resolved disputes so far?",
      f"SELECT round(sum(recovered_usd)) FROM {C}.ops.dispute_case_status"),
+    ("What was the total billing shortfall across all deals in Q3 2026, including deals within tolerance?",
+     f"SELECT round(sum(billing_shortfall_usd)) FROM {C}.gold.recon_partner_month WHERE billing_month IN ('2026-07','2026-08','2026-09')"),
+    ("What is Apex's own net exposure, after publisher pass-through, on the Q3 dispute queue?",
+     f"SELECT round(sum(apex_exposure_usd)) FROM {C}.gold.dispute_queue"),
 ]
 
 

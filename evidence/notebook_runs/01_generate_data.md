@@ -1,11 +1,14 @@
 # Executed notebook: `01_generate_data`
 
-- Task run ID: `1018059793733660` (job run `600343157910371`)
+- Task run ID: `289082188020749` (job run `542978415804640`)
 - Result: **SUCCESS**
-- Run page: https://fevm-megant-fevm.cloud.databricks.com/?o=7474649371849429#job/800507315624085/run/1018059793733660
+- Run page: https://fevm-megant-fevm.cloud.databricks.com/?o=7474649371849429#job/800507315624085/run/289082188020749
 - Every cell below is shown with the output it produced in that run.
 
 # 01 · Synthetic CTV data generator
+
+> **Execution evidence:** this is the source the job runs. The same notebook with every cell's output from the
+> latest job run is in [`evidence/notebook_runs/01_generate_data.md`](../evidence/notebook_runs/01_generate_data.md) (and `.ipynb`).
 
 Nine months (Jan–Sep 2026) of data for **Apex Exchange**, a fictional CTV SSP:
 
@@ -13,13 +16,17 @@ Nine months (Jan–Sep 2026) of data for **Apex Exchange**, a fictional CTV SSP:
 |---|---|---|
 | SSP auction logs | `/Volumes/apex_recon/landing/raw/ssp_logs/*.json.gz` | Apex's own count: deal × hour (UTC), one file per day |
 | DSP billing reports | `/Volumes/apex_recon/landing/raw/dsp_reports/<dsp_id>/*.csv` | Each DSP's count: deal × day, one file per DSP per month |
-| Reference tables | `apex_recon.silver.dsps`, `apex_recon.silver.deals` | Partner contracts and deal attributes |
+| Reference tables | `apex_recon.silver.dsps`, `apex_recon.silver.deals` | Partner contracts, deal attributes, Apex take rate and publisher payment terms |
 | Dispute history | `apex_recon.ml.dispute_history` | Jan–Jun disputes resolved by Billing Ops (ML training labels) |
 | Ground truth | `apex_recon.ml.ground_truth_root_causes` | Planted cause per deal-month, for model evaluation only |
 
 DSP reports start from the same delivery as Apex's logs, then get distorted by one of **five root causes**
 (plus a smaller second cause on ~30% of problem cases, like real disputes). The CSVs also contain bad rows
 (missing deal IDs, negative counts, bad dates, duplicates) for the pipeline's data-quality rules to catch.
+
+Each bad value is injected independently and duplicates are copied after injection, so a few rows carry two faults
+(e.g. a duplicate of a row with no deal ID). That's why the pipeline's per-rule counts add up to slightly more than
+the number of distinct rows it drops.
 
 ```python
 import json
@@ -34,7 +41,7 @@ try:
     dbutils.widgets.text("seed", "42")
     CATALOG, SEED, ON_DATABRICKS = dbutils.widgets.get("catalog"), int(dbutils.widgets.get("seed")), True
     ROOT = f"/Volumes/{CATALOG}/landing/raw"
-except NameError:  # local dry run: python src/01_generate_data.py
+except NameError:  # outside Databricks (no dbutils): write files locally
     CATALOG, SEED, ON_DATABRICKS = "apex_recon", 42, False
     ROOT = os.environ.get("APEX_LOCAL_ROOT", "/tmp/apex_raw")
 rng = np.random.default_rng(SEED)
@@ -112,6 +119,14 @@ deals = pd.DataFrame({
     "is_live": d_live,
     "ivt_risk_score": pub_ivt[d_pub].round(3),
 })
+# Apex's economics per deal, from a separate RNG so the rest of the data is unchanged. Apex keeps its take rate;
+# publishers on APEX_COUNT terms are paid on Apex's count even if the DSP pays less (typical for guaranteed deals),
+# publishers on CLEARED terms are paid only on what the DSP actually pays.
+fin = np.random.default_rng(SEED + 1)
+deals["apex_take_rate_pct"] = (pd.Series(d_type).map({"PG": 11.0, "PMP": 14.0, "OPEN": 18.0}).to_numpy()
+                               + fin.normal(0, 1.0, N_DEAL)).round(1)
+deals["publisher_paid_on"] = np.where(fin.random(N_DEAL) < pd.Series(d_type).map({"PG": 0.7, "PMP": 0.4, "OPEN": 0.15}).to_numpy(),
+                                      "APEX_COUNT", "CLEARED")
 ```
 
 ## What Apex actually delivered (hourly)
@@ -304,7 +319,8 @@ hist_cols = ["case_id", "dsp_id", "deal_id", "billing_month", "ssp_revenue_usd",
 gt_cols = ["deal_id", "dsp_id", "billing_month", "root_cause", "secondary_cause", "ssp_impressions", "dsp_impressions",
            "ssp_revenue_usd", "dsp_revenue_usd", "revenue_gap_usd", "revenue_gap_pct"]
 TABLES = {"silver.dsps": (dsps, "DSP partners and contract terms (discrepancy threshold, billing basis, payment terms)."),
-          "silver.deals": (deals, "CTV deals: DSP, publisher, deal type, content genre, live flag, publisher IVT risk score."),
+          "silver.deals": (deals, "CTV deals: DSP, publisher, deal type, content genre, live flag, publisher IVT risk score, "
+                                  "Apex take rate and publisher payment terms (APEX_COUNT or CLEARED)."),
           "ml.dispute_history": (hist[hist_cols], "Jan-Jun 2026 disputes resolved by Billing Ops. resolved_root_cause is the ML label."),
           "ml.ground_truth_root_causes": (gt[gt_cols], "Planted cause per deal-month from the generator. Evaluation only, never a feature.")}
 if ON_DATABRICKS:

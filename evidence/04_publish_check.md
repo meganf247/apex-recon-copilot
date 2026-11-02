@@ -6,6 +6,8 @@ FROM apex_recon.information_schema.row_filters ORDER BY 1, 2
 | table_schema | table_name | filter_name | target_columns |
 |---|---|---|---|
 | gold | dispute_queue | apex_recon.ops.partner_access_filter | partner_team |
+| gold | recon_deal_month | apex_recon.ops.partner_access_filter | partner_team |
+| gold | recon_partner_month | apex_recon.ops.partner_access_filter | partner_team |
 
 ```sql
 SELECT table_schema, table_name, column_name, mask_name
@@ -13,10 +15,24 @@ FROM apex_recon.information_schema.column_masks ORDER BY 1, 2, 3
 ```
 | table_schema | table_name | column_name | mask_name |
 |---|---|---|---|
+| gold | dispute_queue | apex_exposure_usd | apex_recon.ops.finance_only_usd |
 | gold | dispute_queue | dsp_revenue_usd | apex_recon.ops.finance_only_usd |
 | gold | dispute_queue | revenue_at_risk_usd | apex_recon.ops.finance_only_usd |
 | gold | dispute_queue | revenue_gap_usd | apex_recon.ops.finance_only_usd |
 | gold | dispute_queue | ssp_revenue_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | apex_exposure_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | apex_net_revenue_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | billing_shortfall_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | dsp_revenue_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | revenue_at_risk_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | revenue_gap_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_deal_month | ssp_revenue_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_partner_month | apex_exposure_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_partner_month | apex_net_revenue_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_partner_month | billing_shortfall_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_partner_month | dsp_revenue_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_partner_month | revenue_at_risk_usd | apex_recon.ops.finance_only_usd |
+| gold | recon_partner_month | ssp_revenue_usd | apex_recon.ops.finance_only_usd |
 
 ```sql
 SELECT schema_name, table_name, tag_name, tag_value

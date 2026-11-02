@@ -99,12 +99,18 @@ def overview():
                             sum(coalesce(c.recovered_usd,0)) AS recovered
                      FROM serving.case_workbench q LEFT JOIN recon.dispute_cases c USING (case_id)
                      WHERE q.billing_month = %s GROUP BY 1""", (month,))
-    k = st.columns(5)
-    k[0].metric("Gross CTV revenue (Apex)", usd(cur.ssp_revenue_usd.sum()))
+    k = st.columns(6)
+    k[0].metric("Gross CTV spend (Apex count)", usd(cur.ssp_revenue_usd.sum()))
     k[1].metric("Billed per DSP reports", usd(cur.dsp_revenue_usd.sum()))
-    k[2].metric("Revenue at risk", usd(cur.revenue_at_risk_usd.sum()))
-    k[3].metric("Cases open", int(cases[cases.status != "RESOLVED"].n.sum()))
-    k[4].metric("Recovered so far", usd(cases.recovered.sum()))
+    k[2].metric("Billing shortfall (all deals)", usd(cur.billing_shortfall_usd.sum()))
+    k[3].metric("Revenue at risk (review queue)", usd(cur.revenue_at_risk_usd.sum()),
+                f"{int(cases.n.sum())} cases · {int(cases[cases.status != 'RESOLVED'].n.sum())} open", delta_color="off")
+    k[4].metric("Apex net exposure", usd(cur.apex_exposure_usd.sum()))
+    k[5].metric("Recovered so far", usd(cases.recovered.sum()))
+    st.caption("Billing shortfall = every deal where the DSP reported less than Apex. Revenue at risk = the shortfall on "
+               "deals over contract tolerance, which become cases. Apex net exposure = the part of it that hits Apex's own "
+               "P&L: all of it when the publisher is paid on Apex's count, only Apex's take rate when the publisher is "
+               "paid on cleared revenue.")
 
     left, right = st.columns([3, 2])
     with left:
@@ -169,12 +175,15 @@ def case_detail():
     ensure_case(row)
     st.title(f"{row.dsp_name} · {row.deal_name}")
     st.caption(f"{case_id} · {row.billing_month} · status **{row.status}** · owner {row.owner or USER}")
-    k = st.columns(5)
+    k = st.columns(6)
     k[0].metric("Apex impressions", f"{row.ssp_impressions:,.0f}")
     k[1].metric("DSP impressions", f"{row.dsp_impressions:,.0f}", f"{-row.impression_gap_pct:.1f}%")
     k[2].metric("Revenue gap", usd(row.revenue_gap_usd), f"{-row.revenue_gap_pct:.1f}%")
     k[3].metric("Contract threshold", f"{row.discrepancy_threshold_pct:.1f}%")
-    k[4].metric("Model root cause", row.predicted_root_cause.replace("_", " ").title(), f"{row.confidence:.0%} confidence",
+    k[4].metric("Apex net exposure", usd(row.apex_exposure_usd),
+                f"take {row.apex_take_rate_pct:.1f}% · publisher paid on {row.publisher_paid_on.replace('_', ' ').lower()}",
+                delta_color="off")
+    k[5].metric("Model root cause", row.predicted_root_cause.replace("_", " ").title(), f"{row.confidence:.0%} confidence",
                 delta_color="off")
 
     daily = uc(f"""SELECT s.report_date, s.ssp_impressions, d.dsp_impressions
@@ -212,18 +221,26 @@ def case_detail():
         with st.popover("Resolve case", disabled=row.status == "RESOLVED"):
             resolution = st.selectbox("Resolution", RESOLUTIONS)
             confirmed = st.selectbox("Confirmed root cause", CAUSES, index=CAUSES.index(row.predicted_root_cause))
-            amount = st.number_input("Recovered / credited (USD)", min_value=0.0,
-                                     value=float(max(row.revenue_at_risk_usd or 0, 0)), step=100.0)
+            at_risk = float(max(row.revenue_at_risk_usd or 0, 0))
+            recovered = credited = 0.0
+            if resolution == "RECOVERED":
+                recovered = st.number_input("Recovered from partner (USD)", min_value=0.0, value=at_risk, step=100.0)
+            elif resolution == "CREDIT_ISSUED":
+                credited = st.number_input("Credit: verified invalid traffic only (USD)", min_value=0.0, value=0.0, step=100.0,
+                                           help="The amount the partner's third-party IVT report verifies.")
+                recovered = st.number_input("Recovered: the unverified remainder (USD)", min_value=0.0,
+                                            value=max(at_risk - credited, 0.0), step=100.0)
             if st.button("Confirm resolution"):
                 stmts = [("""UPDATE recon.dispute_cases SET status='RESOLVED', resolution=%s, confirmed_root_cause=%s,
                              recovered_usd=%s, updated_at=now() WHERE case_id=%s""",
-                          (resolution, confirmed, amount if resolution == "RECOVERED" else 0, case_id)),
+                          (resolution, confirmed, recovered, case_id)),
                          log_event(case_id, "STATUS_CHANGED", {"status": "RESOLVED", "resolution": resolution,
                                                                "confirmed_root_cause": confirmed,
-                                                               "model_root_cause": row.predicted_root_cause})]
-                if resolution == "CREDIT_ISSUED":
+                                                               "model_root_cause": row.predicted_root_cause,
+                                                               "recovered_usd": recovered, "credited_usd": credited})]
+                if credited > 0:
                     stmts.append(("""INSERT INTO recon.credit_approvals (case_id, amount_usd, approved_by, reason)
-                                     VALUES (%s, %s, %s, %s)""", (case_id, amount, USER, confirmed)))
+                                     VALUES (%s, %s, %s, %s)""", (case_id, credited, USER, confirmed)))
                 pg_exec(stmts)
                 st.toast("Case resolved")
                 st.rerun()

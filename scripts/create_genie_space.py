@@ -13,12 +13,16 @@ TABLES = [f"{C}.gold.dispute_queue", f"{C}.gold.recon_deal_month", f"{C}.gold.re
           f"{C}.ops.dispute_case_status", f"{C}.silver.deals", f"{C}.silver.dsps"]
 
 INSTRUCTIONS = """You answer questions for Apex Exchange's Finance and Billing Operations teams about CTV revenue reconciliation.
-Business context: Apex Exchange is a CTV sell-side platform (SSP). DSPs pay Apex for impressions; Apex pays publishers their revenue share and keeps the rest (take rate).
+Business context: Apex Exchange is a CTV sell-side platform (SSP). DSPs pay Apex for impressions; Apex pays publishers their revenue share and keeps the rest (apex_take_rate_pct).
+Publishers on APEX_COUNT terms (publisher_paid_on) are paid on Apex's count even when the DSP pays less, so Apex absorbs the whole gap; publishers on CLEARED terms are paid only on what the DSP pays, so Apex loses only its take.
 Each month Apex reconciles its own auction logs (ssp_* columns, the system of record) against each DSP's billing report (dsp_* columns).
 Definitions:
 - revenue gap = ssp_revenue_usd - dsp_revenue_usd; positive means the DSP reported less than Apex delivered.
 - revenue_gap_pct = 100 * revenue gap / ssp_revenue_usd.
-- revenue at risk = revenue_at_risk_usd (positive gaps only). Always use this column for "money at risk" or "exposure".
+- billing shortfall = billing_shortfall_usd: the positive gap on every deal, including deals within contract tolerance.
+- revenue at risk = revenue_at_risk_usd: the shortfall on deals that need review (0 on other deals), which is exactly the dispute queue. Always use this column for "money at risk" or "in dispute".
+- Apex net exposure = apex_exposure_usd: the part of revenue at risk that hits Apex's own P&L. Use it for "Apex's own loss", "net exposure", "P&L impact" or "after publisher pass-through".
+- Apex net revenue = apex_net_revenue_usd (Apex's take of gross spend). ssp_revenue_usd is gross CTV spend, not Apex's revenue.
 - A partner or deal is "over threshold" when abs(revenue_gap_pct) > discrepancy_threshold_pct (the contract tolerance).
 - needs_review = over threshold OR at least 30% of days with a daily gap over 7.5%.
 - billing_month is a 'yyyy-MM' string. "This quarter" / "Q3" means billing_month IN ('2026-07','2026-08','2026-09'). The latest close is '2026-09'.
@@ -34,6 +38,7 @@ QUESTIONS = [
     "How much revenue at risk did timezone issues cause in Q3?",
     "Which content genre has the most revenue at risk this quarter, live vs on-demand?",
     "How many disputes are still open and how much money do they cover?",
+    "How much of Q3 revenue at risk is Apex's own net exposure?",
 ]
 
 EXAMPLES = [
@@ -53,6 +58,10 @@ ORDER BY q3_revenue_at_risk_usd DESC"""),
     ("Revenue at risk by root cause this quarter",
      f"""SELECT predicted_root_cause, count(*) AS cases, round(sum(revenue_at_risk_usd)) AS revenue_at_risk_usd
 FROM {C}.gold.dispute_queue GROUP BY predicted_root_cause ORDER BY revenue_at_risk_usd DESC"""),
+    ("Billing shortfall, revenue at risk and Apex net exposure for a quarter",
+     f"""SELECT round(sum(billing_shortfall_usd)) AS billing_shortfall_usd, round(sum(revenue_at_risk_usd)) AS revenue_at_risk_usd,
+  round(sum(apex_exposure_usd)) AS apex_exposure_usd, round(sum(apex_net_revenue_usd)) AS apex_net_revenue_usd
+FROM {C}.gold.recon_partner_month WHERE billing_month IN ('2026-07','2026-08','2026-09')"""),
     ("Open disputes and the money they cover",
      f"""SELECT coalesce(s.status, 'OPEN') AS status, count(*) AS cases, round(sum(q.revenue_at_risk_usd)) AS revenue_at_risk_usd,
   round(sum(coalesce(s.recovered_usd, 0))) AS recovered_usd

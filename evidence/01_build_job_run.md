@@ -1,15 +1,15 @@
 # Job run evidence: [dev megan_fogal] apex-recon-build
 
-- Run ID: `600343157910371`  
+- Run ID: `542978415804640`  
 - Result: **SUCCESS**  
-- Started: 2026-10-07 15:23:59 UTC  
-- Ended: 2026-10-07 15:32:51 UTC  
-- Run page: https://fevm-megant-fevm.cloud.databricks.com/?o=7474649371849429#job/800507315624085/run/600343157910371
+- Started: 2026-11-02 15:48:50 UTC  
+- Ended: 2026-11-02 15:56:39 UTC  
+- Run page: https://fevm-megant-fevm.cloud.databricks.com/?o=7474649371849429#job/800507315624085/run/542978415804640
 
 | Task | Result | Duration (min) |
 |---|---|---:|
-| `ml_and_disputes` | SUCCESS | 4.2 |
-| `generate_data` | SUCCESS | 2.9 |
+| `ml_and_disputes` | SUCCESS | 3.7 |
+| `generate_data` | SUCCESS | 2.4 |
 | `pipeline` | SUCCESS | 1.4 |
 | `publish` | SUCCESS | 0.3 |
 
@@ -19,41 +19,55 @@ Each notebook task's full cell-by-cell output is in `evidence/notebook_runs/`.
 
 ```json
 {
-  "model_version": 6,
+  "model_version": 10,
   "model_results": {
     "holdout_vs_analyst_labels": {
       "model": {
-        "accuracy": 0.8317,
-        "macro_f1": 0.8239
+        "accuracy": 0.854,
+        "macro_f1": 0.8497
       },
       "playbook": {
-        "accuracy": 0.651,
-        "macro_f1": 0.5572
+        "accuracy": 0.6361,
+        "macro_f1": 0.5442
       }
     },
     "jul_sep_vs_true_cause": {
       "model": {
-        "accuracy": 0.9481,
-        "macro_f1": 0.9184
+        "accuracy": 0.9452,
+        "macro_f1": 0.9109
       },
       "playbook": {
         "accuracy": 0.8212,
         "macro_f1": 0.5797
+      }
+    },
+    "jul_sep_review_queue_vs_true_cause": {
+      "cases": 715,
+      "model": {
+        "accuracy": 0.9245,
+        "macro_f1": 0.9073
+      },
+      "playbook": {
+        "accuracy": 0.5524,
+        "macro_f1": 0.4119
       }
     }
   },
   "queue": {
     "2026-08": {
       "cases": 257,
-      "usd": 6698764.0
+      "usd": 6698764.0,
+      "apex_exposure_usd": 3366663.0
     },
     "2026-07": {
       "cases": 239,
-      "usd": 4636200.0
+      "usd": 4636200.0,
+      "apex_exposure_usd": 2262746.0
     },
     "2026-09": {
       "cases": 219,
-      "usd": 6778508.0
+      "usd": 6778508.0,
+      "apex_exposure_usd": 3294686.0
     }
   },
   "genai": {
@@ -62,7 +76,7 @@ Each notebook task's full cell-by-cell output is in `evidence/notebook_runs/`.
     "dollars_grounded_rate": 1.0,
     "contract_consistent_rate": 1.0,
     "judge_mean_n30": {
-      "accuracy": 4.8,
+      "accuracy": 4.7,
       "tone": 5.0,
       "actionable": 4.97
     },
@@ -73,13 +87,13 @@ Each notebook task's full cell-by-cell output is in `evidence/notebook_runs/`.
   "sample_drafts": [
     {
       "case_id": "CASE-2026-07-D00015",
-      "case_summary": "CASE-2026-07-D00015: Ember Ads (Deal D00015, Summit News Live \u00b7 Sports \u00b7 OPEN) shows a $34,563.45 (9.33%) revenue gap for July 2026, exceeding the 7.5% contract threshold. Apex recorded 7,886,882 impressions vs. Ember Ads' 7,153,576. Billing basis is DSP. Root cause is predicted as late/missing data (0.93 confidence) with 2 days absent from the partner report. No adjustment is proposed pending receipt of the missing report days.",
-      "email_body": "Dear Ember Ads Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00015 (Summit News Live \u00b7 Sports \u00b7 OPEN) for the billing period July 2026.\n\nOur review shows the following:\n\u2022 Apex impressions: 7,886,882\n\u2022 Ember Ads reported impressions: 7,153,576\n\u2022 Apex revenue: $370,386.36\n\u2022 Ember Ads reported revenue: $335,822.91\n\u2022 Revenue gap: $34,563.45 (9.33%), exceeding the contractual 7.5% threshold\n\nOur analysis indicates that 2 days are missing from your submitted report, which we believe accounts for the discrepancy. As billing is governed by DSP counts under our agreement, we require your complete and corrected report before the invoice can be finalized.\n\nPlease provide the missing 2 report days at your earliest convenience so we can reconcile and close this billing period promptly.\n\nThank you for your cooperation. Please do not hesitate to contact us with any questions.\n\nApex Exchange Billing Operations"
+      "case_summary": "CASE-2026-07-D00015: Ember Ads (Deal D00015, Summit News Live \u00b7 Sports \u00b7 OPEN) shows a $34,563.45 (9.33%) revenue gap for July 2026, exceeding the 7.5% contract threshold. Apex recorded 7,886,882 impressions vs. Ember Ads' 7,153,576. Billing basis is DSP. Predicted root cause is late/missing data; partner report is missing 2 days. Resolution requires Ember Ads to submit the missing report days for full reconciliation.",
+      "email_body": "Dear Ember Ads Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00015 (Summit News Live \u00b7 Sports \u00b7 OPEN) for the billing period July 2026.\n\nOur review shows the following:\n- Apex Impressions: 7,886,882\n- Ember Ads Reported Impressions: 7,153,576\n- Apex Revenue: $370,386.36\n- Ember Ads Reported Revenue: $335,822.91\n- Revenue Gap: $34,563.45 (9.33%)\n\nThis gap exceeds the contractual threshold of 7.5%. As billing is governed by DSP counts, we have identified that your report appears to be missing 2 days of data, which we believe is the primary driver of this discrepancy.\n\nWe kindly ask that you submit the missing report days so that we can complete reconciliation and finalize the invoice accordingly.\n\nPlease respond at your earliest convenience. We are happy to assist in resolving this promptly.\n\nBest regards,\nApex Exchange Billing Operations"
     },
     {
       "case_id": "CASE-2026-07-D00017",
-      "case_summary": "CASE-2026-07-D00017: For deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG), Kestrel Demand reported 4,431,012 impressions vs. Apex's 5,199,466\u2014a gap of 768,454 impressions (14.78%), exceeding the 10.0% contract threshold. Revenue gap is $27,869.76 ($188,572.42 vs. $160,702.66). Billing basis is DSP; predicted root cause is IVT filtering (confidence: 100%). Partner must provide third-party IVT documentation before any credit is considered.",
-      "email_body": "Dear Kestrel Demand Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG) for the billing period July 2026.\n\nApex recorded 5,199,466 impressions ($188,572.42), while your report reflects 4,431,012 impressions ($160,702.66), producing a revenue gap of $27,869.76 (14.78%). This exceeds our contractual variance threshold of 10.0%.\n\nOur analysis indicates the likely root cause is IVT filtering applied on your side. As this deal is governed by DSP-side counts, we require your corrected report and the supporting third-party IVT verification documentation for all removed impressions. Only impressions confirmed as invalid via a recognized third-party IVT provider will be eligible for credit consideration.\n\nPlease provide the third-party IVT report within 10 business days. We will review the documentation and determine the verified credit amount accordingly. No adjustment will be applied absent this supporting evidence.\n\nThank you for your prompt attention.\n\nApex Exchange Billing Operations"
+      "case_summary": "CASE-2026-07-D00017: For deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG), Kestrel Demand reported 4,431,012 impressions vs. Apex's 5,199,466\u2014a gap of 768,454 impressions driving a $27,869.76 (14.78%) revenue shortfall against a 10.0% contract threshold. Billing basis is DSP. Predicted root cause is IVT filtering (confidence: 100%). No missing report days. Partner must provide third-party IVT documentation; only verified IVT will be credited.",
+      "email_body": "Dear Kestrel Demand Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG) for the billing period July 2026.\n\nApex recorded 5,199,466 impressions ($188,572.42), while your report reflects 4,431,012 impressions ($160,702.66)\u2014a revenue gap of $27,869.76 (14.78%), which exceeds our contractual threshold of 10.0%.\n\nOur analysis indicates the likely root cause is IVT filtering applied on your side. As billing is governed by DSP count, we require supporting documentation to evaluate any adjustment.\n\nAction Required: Please share the third-party IVT report substantiating the impressions removed from your count. Only impressions verified as IVT through a recognized third-party provider will be eligible for credit.\n\nKindly provide the documentation within 5 business days. We are happy to discuss further if needed.\n\nBest regards,\nApex Exchange Billing Operations"
     }
   ]
 }
@@ -116,7 +130,7 @@ Each notebook task's full cell-by-cell output is in `evidence/notebook_runs/`.
 
 ## Task `pipeline`
 
-Pipeline `7e5bc896-605c-44f6-a2e3-039922e893a9`, update `c768f685-57f4-4a94-b96b-5c32d8a87357` → **COMPLETED**
+Pipeline `7e5bc896-605c-44f6-a2e3-039922e893a9`, update `90e3d1f4-9919-4d1e-88ab-395affd8f930` → **COMPLETED**
 
 Rows written and expectation results: see `evidence/02_pipeline_evidence.md`.
 

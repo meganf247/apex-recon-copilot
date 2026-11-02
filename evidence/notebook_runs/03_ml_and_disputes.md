@@ -1,11 +1,14 @@
 # Executed notebook: `03_ml_and_disputes`
 
-- Task run ID: `591503252073042` (job run `600343157910371`)
+- Task run ID: `153382223878704` (job run `542978415804640`)
 - Result: **SUCCESS**
-- Run page: https://fevm-megant-fevm.cloud.databricks.com/?o=7474649371849429#job/800507315624085/run/591503252073042
+- Run page: https://fevm-megant-fevm.cloud.databricks.com/?o=7474649371849429#job/800507315624085/run/153382223878704
 - Every cell below is shown with the output it produced in that run.
 
 # 03 · Root-cause model and dispute drafts
+
+> **Execution evidence:** this is the source the job runs. The same notebook with every cell's output from the
+> latest job run is in [`evidence/notebook_runs/03_ml_and_disputes.md`](../evidence/notebook_runs/03_ml_and_disputes.md) (and `.ipynb`).
 
 1. **Features:** how each deal's daily gap behaves across the month → `ml.root_cause_features`
 2. **Model:** learn the root cause from the Jan–Jun disputes Billing Ops resolved, compare with the analysts'
@@ -74,8 +77,9 @@ FEATURES = NUMERIC + CATEGORICAL
 feats = spark.table(f"{CATALOG}.ml.root_cause_features").toPandas()
 labels = spark.table(f"{CATALOG}.ml.dispute_history").select("deal_id", "billing_month", "resolved_root_cause").toPandas()
 truth = spark.table(f"{CATALOG}.ml.ground_truth_root_causes").select("deal_id", "billing_month", "root_cause").toPandas()
-train_df = feats.merge(labels, on=["deal_id", "billing_month"])
-current = feats[feats.billing_month >= "2026-07"].merge(truth, on=["deal_id", "billing_month"])
+KEYS = ["deal_id", "billing_month"]  # sorted so the train/test split (and the scores) are the same on every run
+train_df = feats.merge(labels, on=KEYS).sort_values(KEYS, ignore_index=True)
+current = feats[feats.billing_month >= "2026-07"].merge(truth, on=KEYS).sort_values(KEYS, ignore_index=True)
 print(f"{len(feats):,} deal-months · {len(train_df):,} labelled history cases · {len(current):,} Jul–Sep deal-months")
 ```
 
@@ -115,59 +119,95 @@ with mlflow.start_run(run_name="hgb_root_cause") as run:
                                              "playbook": scores(y_te, X_te.apply(playbook, axis=1))},
                "jul_sep_vs_true_cause": {"model": scores(current.root_cause, model.predict(current[FEATURES])),
                                          "playbook": scores(current.root_cause, current[FEATURES].apply(playbook, axis=1))}}
+    # The cases analysts actually work: Jul-Sep deal-months that need review. Most deal-months are within tolerance and
+    # easy to call, so this is the honest comparison with the rules of thumb.
+    review = spark.table(f"{CATALOG}.gold.recon_deal_month").filter("needs_review AND billing_month >= '2026-07'") \
+        .select("deal_id", "billing_month").toPandas()
+    in_queue = current.merge(review, on=["deal_id", "billing_month"])
+    results["jul_sep_review_queue_vs_true_cause"] = {
+        "cases": len(in_queue), "model": scores(in_queue.root_cause, model.predict(in_queue[FEATURES])),
+        "playbook": scores(in_queue.root_cause, in_queue[FEATURES].apply(playbook, axis=1))}
     report = classification_report(current.root_cause, model.predict(current[FEATURES]), digits=3, zero_division=0)
+    queue_report = classification_report(in_queue.root_cause, model.predict(in_queue[FEATURES]), digits=3, zero_division=0)
     for test, r in results.items():
-        mlflow.log_metrics({f"{test}_{who}_{m}": v for who, s in r.items() for m, v in s.items()})
+        mlflow.log_metrics({f"{test}_{who}_{m}": v for who, s in r.items() if who != "cases" for m, v in s.items()})
     mlflow.log_text(report, "jul_sep_classification_report.txt")
+    mlflow.log_text(queue_report, "jul_sep_review_queue_classification_report.txt")
     mlflow.sklearn.log_model(model, "model", signature=infer_signature(X_tr, model.predict(X_tr)),
                              input_example=X_tr.head(3), registered_model_name=MODEL_NAME)
 client = mlflow.MlflowClient()
 version = max(int(v.version) for v in client.search_model_versions(f"name='{MODEL_NAME}'"))
 client.set_registered_model_alias(MODEL_NAME, "champion", version)
 print(json.dumps(results, indent=2))
-print(report)
+print("All Jul-Sep deal-months:\n" + report)
+print("Review queue only:\n" + queue_report)
 ```
 
 Output:
 
 ```text
-2026/10/07 15:29:14 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
-🔗 View Logged Model at: https://fevm-megant-fevm.cloud.databricks.com/ml/experiments/272241904346403/models/m-17204fdfd9f34a24adf12f456220e2dc?o=7474649371849429
+2026/11/02 15:53:26 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+🔗 View Logged Model at: https://fevm-megant-fevm.cloud.databricks.com/ml/experiments/272241904346403/models/m-8425e6dd1dbb4bc3a508781964eb98e7?o=7474649371849429
 Registered model 'apex_recon.ml.discrepancy_root_cause' already exists. Creating a new version of this model...
-🔗 Created version '6' of model 'apex_recon.ml.discrepancy_root_cause': https://fevm-megant-fevm.cloud.databricks.com/explore/data/models/apex_recon/ml/discrepancy_root_cause/version/6?o=7474649371849429
+🔗 Created version '10' of model 'apex_recon.ml.discrepancy_root_cause': https://fevm-megant-fevm.cloud.databricks.com/explore/data/models/apex_recon/ml/discrepancy_root_cause/version/10?o=7474649371849429
 {
   "holdout_vs_analyst_labels": {
     "model": {
-      "accuracy": 0.8317,
-      "macro_f1": 0.8239
+      "accuracy": 0.854,
+      "macro_f1": 0.8497
     },
     "playbook": {
-      "accuracy": 0.651,
-      "macro_f1": 0.5572
+      "accuracy": 0.6361,
+      "macro_f1": 0.5442
     }
   },
   "jul_sep_vs_true_cause": {
     "model": {
-      "accuracy": 0.9481,
-      "macro_f1": 0.9184
+      "accuracy": 0.9452,
+      "macro_f1": 0.9109
     },
     "playbook": {
       "accuracy": 0.8212,
       "macro_f1": 0.5797
     }
+  },
+  "jul_sep_review_queue_vs_true_cause": {
+    "cases": 715,
+    "model": {
+      "accuracy": 0.9245,
+      "macro_f1": 0.9073
+    },
+    "playbook": {
+      "accuracy": 0.5524,
+      "macro_f1": 0.4119
+    }
   }
 }
+All Jul-Sep deal-months:
                        precision    recall  f1-score   support
 
-GENUINE_BILLING_ERROR      0.958     0.945     0.952       146
-        IVT_FILTERING      0.900     0.975     0.936       276
- LATE_OR_MISSING_DATA      0.870     0.986     0.924       142
-       TIMEZONE_SHIFT      0.735     0.915     0.815       106
-     WITHIN_TOLERANCE      0.990     0.942     0.965      1355
+GENUINE_BILLING_ERROR      0.909     0.959     0.933       146
+        IVT_FILTERING      0.917     0.957     0.936       276
+ LATE_OR_MISSING_DATA      0.832     0.944     0.884       142
+       TIMEZONE_SHIFT      0.756     0.934     0.835       106
+     WITHIN_TOLERANCE      0.989     0.942     0.965      1355
 
-             accuracy                          0.948      2025
-            macro avg      0.890     0.953     0.918      2025
-         weighted avg      0.954     0.948     0.949      2025
+             accuracy                          0.945      2025
+            macro avg      0.881     0.947     0.911      2025
+         weighted avg      0.950     0.945     0.947      2025
+
+Review queue only:
+                       precision    recall  f1-score   support
+
+GENUINE_BILLING_ERROR      0.908     0.965     0.936       143
+        IVT_FILTERING      0.963     0.959     0.961       270
+ LATE_OR_MISSING_DATA      0.862     0.954     0.906       131
+       TIMEZONE_SHIFT      0.987     0.929     0.957        84
+     WITHIN_TOLERANCE      0.871     0.701     0.777        87
+
+             accuracy                          0.924       715
+            macro avg      0.918     0.902     0.907       715
+         weighted avg      0.925     0.924     0.923       715
 ```
 
 ```python
@@ -194,12 +234,13 @@ spark.createDataFrame(preds).write.mode("overwrite").option("overwriteSchema", "
 ```python
 spark.sql(f"""
 CREATE OR REPLACE TABLE {CATALOG}.gold.dispute_queue
-COMMENT 'Open reconciliation cases for the Jul-Sep closes, ranked by revenue at risk, with the model root cause, evidence and recommended action.'
+COMMENT 'Open reconciliation cases for the Jul-Sep closes, ranked by revenue at risk, with the model root cause, evidence and recommended action. apex_exposure_usd is the part of revenue at risk that hits Apex''s own P&L.'
 AS SELECT concat('CASE-', d.billing_month, '-', d.deal_id) AS case_id,
   d.billing_month, d.dsp_id, d.dsp_name, d.partner_team, d.deal_id, d.deal_name, d.publisher_name, d.content_genre,
   d.is_live, d.billing_count_basis, d.discrepancy_threshold_pct,
   d.ssp_impressions, d.dsp_impressions, d.impression_gap_pct,
   d.ssp_revenue_usd, d.dsp_revenue_usd, d.revenue_gap_usd, d.revenue_gap_pct, d.revenue_at_risk_usd,
+  d.apex_take_rate_pct, d.publisher_paid_on, d.apex_exposure_usd,
   d.days_delivered, d.days_missing_in_dsp_report, d.large_gap_day_share,
   round(f.daily_gap_lag1_autocorr, 2) AS daily_gap_swing, d.ivt_risk_score,
   p.predicted_root_cause, p.confidence, p.runner_up_cause, p.recommended_action, p.model_version
@@ -209,7 +250,8 @@ JOIN {CATALOG}.ml.discrepancy_predictions p USING (deal_id, billing_month)
 WHERE d.billing_month >= '2026-07' AND d.needs_review
 """)
 q = spark.table(f"{CATALOG}.gold.dispute_queue")
-queue = q.groupBy("billing_month").agg(F.count("*").alias("cases"), F.round(F.sum("revenue_at_risk_usd")).alias("usd")) \
+queue = q.groupBy("billing_month").agg(F.count("*").alias("cases"), F.round(F.sum("revenue_at_risk_usd")).alias("usd"),
+                                      F.round(F.sum("apex_exposure_usd")).alias("apex_exposure_usd")) \
          .toPandas().set_index("billing_month").to_dict("index")
 print(queue)
 ```
@@ -217,7 +259,7 @@ print(queue)
 Output:
 
 ```text
-{'2026-08': {'cases': 257, 'usd': 6698764.0}, '2026-07': {'cases': 239, 'usd': 4636200.0}, '2026-09': {'cases': 219, 'usd': 6778508.0}}
+{'2026-08': {'cases': 257, 'usd': 6698764.0, 'apex_exposure_usd': 3366663.0}, '2026-07': {'cases': 239, 'usd': 4636200.0, 'apex_exposure_usd': 2262746.0}, '2026-09': {'cases': 219, 'usd': 6778508.0, 'apex_exposure_usd': 3294686.0}}
 ```
 
 ## 4 · Draft disputes with `ai_query`, then check them
@@ -304,7 +346,7 @@ Output:
   "dollars_grounded_rate": 1.0,
   "contract_consistent_rate": 1.0,
   "judge_mean_n30": {
-    "accuracy": 4.8,
+    "accuracy": 4.7,
     "tone": 5.0,
     "actionable": 4.97
   },
@@ -313,7 +355,7 @@ Output:
 }
 
 ===== CASE-2026-07-D00015 =====
-CASE-2026-07-D00015: Ember Ads (Deal D00015, Summit News Live · Sports · OPEN) shows a $34,563.45 (9.33%) revenue gap for July 2026, exceeding the 7.5% contract threshold. Apex recorded 7,886,882 impressions vs. Ember Ads' 7,153,576. Billing basis is DSP. Root cause is predicted as late/missing data (0.93 confidence) with 2 days absent from the partner report. No adjustment is proposed pending receipt of the missing report days.
+CASE-2026-07-D00015: Ember Ads (Deal D00015, Summit News Live · Sports · OPEN) shows a $34,563.45 (9.33%) revenue gap for July 2026, exceeding the 7.5% contract threshold. Apex recorded 7,886,882 impressions vs. Ember Ads' 7,153,576. Billing basis is DSP. Predicted root cause is late/missing data; partner report is missing 2 days. Resolution requires Ember Ads to submit the missing report days for full reconciliation.
 
 SUBJECT: Billing Dispute – CASE-2026-07-D00015 | Deal D00015 Summit News Live · Sports · OPEN | July 2026 | Missing Report Days
 Dear Ember Ads Billing Team,
@@ -321,36 +363,38 @@ Dear Ember Ads Billing Team,
 We are writing regarding a discrepancy identified for Deal D00015 (Summit News Live · Sports · OPEN) for the billing period July 2026.
 
 Our review shows the following:
-• Apex impressions: 7,886,882
-• Ember Ads reported impressions: 7,153,576
-• Apex revenue: $370,386.36
-• Ember Ads reported revenue: $335,822.91
-• Revenue gap: $34,563.45 (9.33%), exceeding the contractual 7.5% threshold
+- Apex Impressions: 7,886,882
+- Ember Ads Reported Impressions: 7,153,576
+- Apex Revenue: $370,386.36
+- Ember Ads Reported Revenue: $335,822.91
+- Revenue Gap: $34,563.45 (9.33%)
 
-Our analysis indicates that 2 days are missing from your submitted report, which we believe accounts for the discrepancy. As billing is governed by DSP counts under our agreement, we require your complete and corrected report before the invoice can be finalized.
+This gap exceeds the contractual threshold of 7.5%. As billing is governed by DSP counts, we have identified that your report appears to be missing 2 days of data, which we believe is the primary driver of this discrepancy.
 
-Please provide the missing 2 report days at your earliest convenience so we can reconcile and close this billing period promptly.
+We kindly ask that you submit the missing report days so that we can complete reconciliation and finalize the invoice accordingly.
 
-Thank you for your cooperation. Please do not hesitate to contact us with any questions.
+Please respond at your earliest convenience. We are happy to assist in resolving this promptly.
 
+Best regards,
 Apex Exchange Billing Operations
 
 ===== CASE-2026-07-D00017 =====
-CASE-2026-07-D00017: For deal D00017 (Lakeshore Stream · Entertainment · PG), Kestrel Demand reported 4,431,012 impressions vs. Apex's 5,199,466—a gap of 768,454 impressions (14.78%), exceeding the 10.0% contract threshold. Revenue gap is $27,869.76 ($188,572.42 vs. $160,702.66). Billing basis is DSP; predicted root cause is IVT filtering (confidence: 100%). Partner must provide third-party IVT documentation before any credit is considered.
+CASE-2026-07-D00017: For deal D00017 (Lakeshore Stream · Entertainment · PG), Kestrel Demand reported 4,431,012 impressions vs. Apex's 5,199,466—a gap of 768,454 impressions driving a $27,869.76 (14.78%) revenue shortfall against a 10.0% contract threshold. Billing basis is DSP. Predicted root cause is IVT filtering (confidence: 100%). No missing report days. Partner must provide third-party IVT documentation; only verified IVT will be credited.
 
-SUBJECT: Billing Dispute – CASE-2026-07-D00017 | Deal D00017 Lakeshore Stream · Entertainment · PG | July 2026
+SUBJECT: Billing Dispute – CASE-2026-07-D00017 | Deal D00017 Lakeshore Stream · Entertainment · PG | July 2026 | IVT Filtering Documentation Required
 Dear Kestrel Demand Billing Team,
 
 We are writing regarding a discrepancy identified for Deal D00017 (Lakeshore Stream · Entertainment · PG) for the billing period July 2026.
 
-Apex recorded 5,199,466 impressions ($188,572.42), while your report reflects 4,431,012 impressions ($160,702.66), producing a revenue gap of $27,869.76 (14.78%). This exceeds our contractual variance threshold of 10.0%.
+Apex recorded 5,199,466 impressions ($188,572.42), while your report reflects 4,431,012 impressions ($160,702.66)—a revenue gap of $27,869.76 (14.78%), which exceeds our contractual threshold of 10.0%.
 
-Our analysis indicates the likely root cause is IVT filtering applied on your side. As this deal is governed by DSP-side counts, we require your corrected report and the supporting third-party IVT verification documentation for all removed impressions. Only impressions confirmed as invalid via a recognized third-party IVT provider will be eligible for credit consideration.
+Our analysis indicates the likely root cause is IVT filtering applied on your side. As billing is governed by DSP count, we require supporting documentation to evaluate any adjustment.
 
-Please provide the third-party IVT report within 10 business days. We will review the documentation and determine the verified credit amount accordingly. No adjustment will be applied absent this supporting evidence.
+Action Required: Please share the third-party IVT report substantiating the impressions removed from your count. Only impressions verified as IVT through a recognized third-party provider will be eligible for credit.
 
-Thank you for your prompt attention.
+Kindly provide the documentation within 5 business days. We are happy to discuss further if needed.
 
+Best regards,
 Apex Exchange Billing Operations
 ```
 
@@ -381,5 +425,5 @@ Output:
 
 ```text
 Notebook exit value:
-{"model_version": 6, "model_results": {"holdout_vs_analyst_labels": {"model": {"accuracy": 0.8317, "macro_f1": 0.8239}, "playbook": {"accuracy": 0.651, "macro_f1": 0.5572}}, "jul_sep_vs_true_cause": {"model": {"accuracy": 0.9481, "macro_f1": 0.9184}, "playbook": {"accuracy": 0.8212, "macro_f1": 0.5797}}}, "queue": {"2026-08": {"cases": 257, "usd": 6698764.0}, "2026-07": {"cases": 239, "usd": 4636200.0}, "2026-09": {"cases": 219, "usd": 6778508.0}}, "genai": {"drafts": 250, "parse_failures": 0, "dollars_grounded_rate": 1.0, "contract_consistent_rate": 1.0, "judge_mean_n30": {"accuracy": 4.8, "tone": 5.0, "actionable": 4.97}, "draft_model": "databricks-claude-sonnet-4-6", "judge_model": "databricks-gpt-5-4-mini"}, "lakebase_sync": "refresh started (pipeline 48cbab11-7eab-4c56-90ea-ec35cee07631)", "sample_drafts": [{"case_id": "CASE-2026-07-D00015", "case_summary": "CASE-2026-07-D00015: Ember Ads (Deal D00015, Summit News Live \u00b7 Sports \u00b7 OPEN) shows a $34,563.45 (9.33%) revenue gap for July 2026, exceeding the 7.5% contract threshold. Apex recorded 7,886,882 impressions vs. Ember Ads' 7,153,576. Billing basis is DSP. Root cause is predicted as late/missing data (0.93 confidence) with 2 days absent from the partner report. No adjustment is proposed pending receipt of the missing report days.", "email_body": "Dear Ember Ads Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00015 (Summit News Live \u00b7 Sports \u00b7 OPEN) for the billing period July 2026.\n\nOur review shows the following:\n\u2022 Apex impressions: 7,886,882\n\u2022 Ember Ads reported impressions: 7,153,576\n\u2022 Apex revenue: $370,386.36\n\u2022 Ember Ads reported revenue: $335,822.91\n\u2022 Revenue gap: $34,563.45 (9.33%), exceeding the contractual 7.5% threshold\n\nOur analysis indicates that 2 days are missing from your submitted report, which we believe accounts for the discrepancy. As billing is governed by DSP counts under our agreement, we require your complete and corrected report before the invoice can be finalized.\n\nPlease provide the missing 2 report days at your earliest convenience so we can reconcile and close this billing period promptly.\n\nThank you for your cooperation. Please do not hesitate to contact us with any questions.\n\nApex Exchange Billing Operations"}, {"case_id": "CASE-2026-07-D00017", "case_summary": "CASE-2026-07-D00017: For deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG), Kestrel Demand reported 4,431,012 impressions vs. Apex's 5,199,466\u2014a gap of 768,454 impressions (14.78%), exceeding the 10.0% contract threshold. Revenue gap is $27,869.76 ($188,572.42 vs. $160,702.66). Billing basis is DSP; predicted root cause is IVT filtering (confidence: 100%). Partner must provide third-party IVT documentation before any credit is considered.", "email_body": "Dear Kestrel Demand Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG) for the billing period July 2026.\n\nApex recorded 5,199,466 impressions ($188,572.42), while your report reflects 4,431,012 impressions ($160,702.66), producing a revenue gap of $27,869.76 (14.78%). This exceeds our contractual variance threshold of 10.0%.\n\nOur analysis indicates the likely root cause is IVT filtering applied on your side. As this deal is governed by DSP-side counts, we require your corrected report and the supporting third-party IVT verification documentation for all removed impressions. Only impressions confirmed as invalid via a recognized third-party IVT provider will be eligible for credit consideration.\n\nPlease provide the third-party IVT report within 10 business days. We will review the documentation and determine the verified credit amount accordingly. No adjustment will be applied absent this supporting evidence.\n\nThank you for your prompt attention.\n\nApex Exchange Billing Operations"}]}
+{"model_version": 10, "model_results": {"holdout_vs_analyst_labels": {"model": {"accuracy": 0.854, "macro_f1": 0.8497}, "playbook": {"accuracy": 0.6361, "macro_f1": 0.5442}}, "jul_sep_vs_true_cause": {"model": {"accuracy": 0.9452, "macro_f1": 0.9109}, "playbook": {"accuracy": 0.8212, "macro_f1": 0.5797}}, "jul_sep_review_queue_vs_true_cause": {"cases": 715, "model": {"accuracy": 0.9245, "macro_f1": 0.9073}, "playbook": {"accuracy": 0.5524, "macro_f1": 0.4119}}}, "queue": {"2026-08": {"cases": 257, "usd": 6698764.0, "apex_exposure_usd": 3366663.0}, "2026-07": {"cases": 239, "usd": 4636200.0, "apex_exposure_usd": 2262746.0}, "2026-09": {"cases": 219, "usd": 6778508.0, "apex_exposure_usd": 3294686.0}}, "genai": {"drafts": 250, "parse_failures": 0, "dollars_grounded_rate": 1.0, "contract_consistent_rate": 1.0, "judge_mean_n30": {"accuracy": 4.7, "tone": 5.0, "actionable": 4.97}, "draft_model": "databricks-claude-sonnet-4-6", "judge_model": "databricks-gpt-5-4-mini"}, "lakebase_sync": "refresh started (pipeline 48cbab11-7eab-4c56-90ea-ec35cee07631)", "sample_drafts": [{"case_id": "CASE-2026-07-D00015", "case_summary": "CASE-2026-07-D00015: Ember Ads (Deal D00015, Summit News Live \u00b7 Sports \u00b7 OPEN) shows a $34,563.45 (9.33%) revenue gap for July 2026, exceeding the 7.5% contract threshold. Apex recorded 7,886,882 impressions vs. Ember Ads' 7,153,576. Billing basis is DSP. Predicted root cause is late/missing data; partner report is missing 2 days. Resolution requires Ember Ads to submit the missing report days for full reconciliation.", "email_body": "Dear Ember Ads Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00015 (Summit News Live \u00b7 Sports \u00b7 OPEN) for the billing period July 2026.\n\nOur review shows the following:\n- Apex Impressions: 7,886,882\n- Ember Ads Reported Impressions: 7,153,576\n- Apex Revenue: $370,386.36\n- Ember Ads Reported Revenue: $335,822.91\n- Revenue Gap: $34,563.45 (9.33%)\n\nThis gap exceeds the contractual threshold of 7.5%. As billing is governed by DSP counts, we have identified that your report appears to be missing 2 days of data, which we believe is the primary driver of this discrepancy.\n\nWe kindly ask that you submit the missing report days so that we can complete reconciliation and finalize the invoice accordingly.\n\nPlease respond at your earliest convenience. We are happy to assist in resolving this promptly.\n\nBest regards,\nApex Exchange Billing Operations"}, {"case_id": "CASE-2026-07-D00017", "case_summary": "CASE-2026-07-D00017: For deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG), Kestrel Demand reported 4,431,012 impressions vs. Apex's 5,199,466\u2014a gap of 768,454 impressions driving a $27,869.76 (14.78%) revenue shortfall against a 10.0% contract threshold. Billing basis is DSP. Predicted root cause is IVT filtering (confidence: 100%). No missing report days. Partner must provide third-party IVT documentation; only verified IVT will be credited.", "email_body": "Dear Kestrel Demand Billing Team,\n\nWe are writing regarding a discrepancy identified for Deal D00017 (Lakeshore Stream \u00b7 Entertainment \u00b7 PG) for the billing period July 2026.\n\nApex recorded 5,199,466 impressions ($188,572.42), while your report reflects 4,431,012 impressions ($160,702.66)\u2014a revenue gap of $27,869.76 (14.78%), which exceeds our contractual threshold of 10.0%.\n\nOur analysis indicates the likely root cause is IVT filtering applied on your side. As billing is governed by DSP count, we require supporting documentation to evaluate any adjustment.\n\nAction Required: Please share the third-party IVT report substantiating the impressions removed from your count. Only impressions verified as IVT through a recognized third-party provider will be eligible for credit.\n\nKindly provide the documentation within 5 business days. We are happy to discuss further if needed.\n\nBest regards,\nApex Exchange Billing Operations"}]}
 ```
